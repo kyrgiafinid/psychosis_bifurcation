@@ -1,4 +1,4 @@
-function f = PY_neuron_synapse(t, x, p)
+function f = PY_neuron_ode(t, x, p)
     % Pyramidal neuron with synaptic currents
     % t unused - autonomous system
     %
