@@ -87,9 +87,9 @@ function f = IN_neuron_ode(t, x, p)
     gNMDA_total = (gNMDAs - gNMDAf) / (1 + 0.264 * exp(-0.06 * V));
  
     %% Synaptic currents
-    Iampa = - gAMPA       * (V - EAMPA);   % excitatory (from PY)
-    Inmda = - gNMDA_total * (V - EAMPA);   % excitatory (from PY)
-    Igaba = - gGABA       * (V - EGABA);   % inhibitory (from other IN)
+    Iampa = gAMPA       * (V - EAMPA);   % excitatory (from PY)
+    Inmda = gNMDA_total * (V - EAMPA);   % excitatory (from PY)
+    Igaba = gGABA       * (V - EGABA);   % inhibitory (from other IN)
  
     Isyn = Iampa + Inmda + Igaba;
  

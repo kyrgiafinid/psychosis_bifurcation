@@ -77,9 +77,9 @@ function f = PY_neuron_ode(t, x, p)
     gNMDA_total = (gNMDAs - gNMDAf) / (1 + 0.264*exp(-0.06*Vm));
     
     %% Synaptic currents
-    Iampa = - gAMPA      * (Vm - EAMPA);   % excitatory
-    Inmda = - gNMDA_total* (Vm - EAMPA);   % excitatory
-    Igaba = - gGABA      * (Vm - EGABA);   % inhibitory
+    Iampa = gAMPA      * (Vm - EAMPA);   % excitatory
+    Inmda = gNMDA_total* (Vm - EAMPA);   % excitatory
+    Igaba = gGABA      * (Vm - EGABA);   % inhibitory
     
     % Total synaptic current
     % AMPA and NMDA are excitatory (depolarizing, negative sign removes them)

@@ -18,27 +18,46 @@ x0 = [Vm_rest;   % Vm
       0];        % gGABA   - no synapse active yet
 
 % Simulate
-tspan   = [0 1000];     % 1000 ms
+T_total      = 1000;   % total simulation time [ms]
+T_transient  = 200;    % discard this much at the start [ms]
+T_measure    = (T_total - T_transient) / 1000;  % measurement window [s]
+
+I_range_PY = 0:10:50;    % sweep range for IN [uA/cm2] -- adjust after first look
+spikeThresh_PY = -20;   % mV
+
 options = odeset('RelTol', 1e-8, 'AbsTol', 1e-10,'MaxStep', 0.001);
-[t, X]  = ode45(@(t,x) PY_neuron_ode(t,x,p), tspan, x0, options);
 
-% Plot
-figure;
+rate_PY = zeros(size(I_range_PY));
+h = waitbar(0, 'Processing...');
+for k = 1:length(I_range_PY)
+    p = [I_range_PY(k), 0, 0, 0];
+    [t, X] = ode45(@(t,x) PY_neuron_ode(t,x,p), [0 T_total], x0, options);
+    rate_PY(k) = count_spike_rate(t, X(:,1), spikeThresh_PY, T_transient, T_measure);
+    % Update loading bar
+    waitbar(k/length(I_range_PY), h, sprintf('Processing %d/%d', k, length(I_range_PY)));
+end
 
-subplot(3,1,1);
-plot(t, X(:,1), 'b-', 'LineWidth', 1.5);
-ylabel('V_m [mV]');
-title('Pyramidal Neuron - Membrane Potential');
-grid on;
+%% Plot
+figure('Color','w');
+ 
+plot(I_range_PY, rate_PY, 'r.-', 'LineWidth', 1.2, 'MarkerSize', 10);
+xlabel('I_{amp} [\muA/cm^2]'); ylabel('Firing rate [Hz]');
+title('IN f-I curve'); grid on;
+ 
+%% Save results for later use (e.g. fitting a gain function F(I))
+save('fI_curves.mat', 'I_range_PY', 'rate_PY', 'I_range_PY', 'rate_PY');
 
-subplot(3,1,2);
-plot(t, X(:,2), 'r-', 'LineWidth', 1.5);
-ylabel('w (recovery)');
-grid on;
-
-
-subplot(3,1,3);
-plot(t, X(:,3), 'g-', 'LineWidth', 1.5);
-ylabel('z (adaptation)');
-xlabel('Time [ms]');
-grid on;
+%% ------------------------------------------------------------------
+function rate = count_spike_rate(t, V, thresh, T_transient, T_measure)
+    % Counts upward threshold crossings of V after T_transient, and
+    % converts the count to a rate in Hz using the measurement window
+    % duration T_measure [s].
+    mask = t >= T_transient;
+    tSeg = t(mask);
+    VSeg = V(mask);
+ 
+    crossings = (VSeg(1:end-1) < thresh) & (VSeg(2:end) >= thresh);
+    nSpikes = sum(crossings);
+ 
+    rate = nSpikes / T_measure;
+end
