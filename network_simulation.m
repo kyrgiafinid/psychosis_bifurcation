@@ -10,7 +10,9 @@ Nx = 30;
 Ny = 30;
 
 N = Nx * Ny;
-gGABA_scale = 8;
+gGABA_scale = 1;
+gNMDA_scale = 1;
+integration_method = "R4K";
 
 rng(1);               % Fixed seed for random number generation
 
@@ -84,10 +86,6 @@ LF_IN_PY = 20;
 
 % For IN -> IN the paper specifies probability,
 % but does not give a separate footprint.
-%
-% For this small test implementation we use the
-% PY footprint as a temporary choice.
-
 LF_IN_IN = 10;
 
 
@@ -215,8 +213,8 @@ C_INPY = C(PY,IN);   % PY - IN connections
 C_PYIN = C(IN,PY);   % IN - PY connections
 C_ININ = C(IN,IN);   % IN - IN connections
 
-% Option A: fixed heterogeneity, drawn once at setup (most common choice)
-% I_amp_PY = 80 + 5*randn(NPY,1);   % mean 40, some spread -- tune spread to taste
+% Uncomment to add external input
+% I_amp_PY = 80 + 5*randn(NPY,1);   
 % I_amp_IN = 80 + 5*randn(NIN,1);
 
 I_amp_PY = zeros(NPY,1);
@@ -241,11 +239,10 @@ LFP = zeros(nSteps,1);
 h = waitbar(0, 'Processing...');
 
 % External drives
-
-vSTIM_PY = 250;
+vSTIM_PY = 0;
 p_ext_PY = vSTIM_PY * dt / 1000;
 
-vSTIM_IN = 500;                    % Hz, fixed (not varied like PY's vSTIM)
+vSTIM_IN = 0;                    
 p_ext_IN = vSTIM_IN * dt / 1000;
 
 g_EXT_PYPY = 0.25;    % paper's value, PY's external excitatory conductance
@@ -271,9 +268,17 @@ for k = 1:nSteps
     extGabaPY = rand(NPY,1) < p_ext_PY;   % same rate as extSpikePY, independent draw
     extGabaIN = rand(NIN,1) < p_ext_IN;   % same rate as extSpikeIN, independent draw
 
-    % ---- 1. decay-only integration (no recurrent spike terms here) ----
-    dY = networkODE(t, Y, false(NPY+NIN,1), false(NPY+NIN,1), I_amp_PY, I_amp_IN, NPY, NIN);
-    Y = Y + dt*dY;
+    % ---- 1. decay-only integration ----
+    if integration_method == "Euler"
+        dY = networkODE(t, Y, false(NPY+NIN,1), false(NPY+NIN,1), I_amp_PY, I_amp_IN, NPY, NIN);
+        Y = Y + dt*dY;
+    elseif integration_method == "R4K"
+        k1 = computeDY(t,        Y,          NPY, NIN);
+        k2 = computeDY(t + dt/2, Y + dt/2*k1, NPY, NIN);
+        k3 = computeDY(t + dt/2, Y + dt/2*k2, NPY, NIN);
+        k4 = computeDY(t + dt,   Y + dt*k3,   NPY, NIN);
+        Y = Y + (dt/6)*(k1 + 2*k2 + 2*k3 + k4);
+    end
 
     % ---- 2. spike detection (must come BEFORE using spikedPY/spikedIN below) ----
     Vnow = Y([Vidx_PY, Vidx_IN]);
@@ -291,35 +296,32 @@ for k = 1:nSteps
     % ---- 3. recurrent AMPA/GABA jumps, full magnitude ----
     Y(gGABA_idx_PY) = Y(gGABA_idx_PY) + gGABA_scale*0.8e-3 * (C_INPY * spikedIN);
     Y(gGABA_idx_IN) = Y(gGABA_idx_IN) + gGABA_scale*5e-4   * (C_ININ * spikedIN);
-
     % recurrent AMPA (existing) + NMDA (new)
     Y(gAMPA_idx_PY)  = Y(gAMPA_idx_PY)  + 7.5e-3 * (C_PYPY * spikedPY);
-    Y(gNMDAs_idx_PY) = Y(gNMDAs_idx_PY) + 0.4*7.5e-3 * (C_PYPY * spikedPY);
-    Y(gNMDAf_idx_PY) = Y(gNMDAf_idx_PY) + 0.4*7.5e-3 * (C_PYPY * spikedPY);
-    
+    Y(gNMDAs_idx_PY) = Y(gNMDAs_idx_PY) + gNMDA_scale*0.4*7.5e-3 * (C_PYPY * spikedPY); 
+    Y(gNMDAf_idx_PY) = Y(gNMDAf_idx_PY) + gNMDA_scale*0.4*7.5e-3 * (C_PYPY * spikedPY); 
     Y(gAMPA_idx_IN)  = Y(gAMPA_idx_IN)  + 2e-3 * (C_PYIN * spikedPY);
-    Y(gNMDAs_idx_IN) = Y(gNMDAs_idx_IN) + 0.1*2e-3 * (C_PYIN * spikedPY);
-    Y(gNMDAf_idx_IN) = Y(gNMDAf_idx_IN) + 0.1*2e-3 * (C_PYIN * spikedPY);
-    
+    Y(gNMDAs_idx_IN) = Y(gNMDAs_idx_IN) + gNMDA_scale*0.1*2e-3 * (C_PYIN * spikedPY);     
+    Y(gNMDAf_idx_IN) = Y(gNMDAf_idx_IN) + gNMDA_scale*0.1*2e-3 * (C_PYIN * spikedPY);     
     % external AMPA (existing) + NMDA (new)
     Y(gAMPA_idx_PY)  = Y(gAMPA_idx_PY)  + g_EXT_PYPY * extSpikePY;
-    Y(gNMDAs_idx_PY) = Y(gNMDAs_idx_PY) + 0.4*g_EXT_PYPY * extSpikePY;
-    Y(gNMDAf_idx_PY) = Y(gNMDAf_idx_PY) + 0.4*g_EXT_PYPY * extSpikePY;
-    
+    Y(gNMDAs_idx_PY) = Y(gNMDAs_idx_PY) + gNMDA_scale*0.4*g_EXT_PYPY * extSpikePY;      
+    Y(gNMDAf_idx_PY) = Y(gNMDAf_idx_PY) + gNMDA_scale*0.4*g_EXT_PYPY * extSpikePY;       
     Y(gAMPA_idx_IN)  = Y(gAMPA_idx_IN)  + g_EXT_INPY * extSpikeIN;
-    Y(gNMDAs_idx_IN) = Y(gNMDAs_idx_IN) + 0.1*g_EXT_INPY * extSpikeIN;
-    Y(gNMDAf_idx_IN) = Y(gNMDAf_idx_IN) + 0.1*g_EXT_INPY * extSpikeIN;
+    Y(gNMDAs_idx_IN) = Y(gNMDAs_idx_IN) + gNMDA_scale*0.1*g_EXT_INPY * extSpikeIN;      
+    Y(gNMDAf_idx_IN) = Y(gNMDAf_idx_IN) + gNMDA_scale*0.1*g_EXT_INPY * extSpikeIN;        
+    
+    gGABATrace(k) = mean(Y(gGABA_idx_PY));
+    Y(gGABA_idx_PY) = Y(gGABA_idx_PY) + g_EXT_PYIN * extGabaPY;
+    Y(gGABA_idx_IN) = Y(gGABA_idx_IN) + g_EXT_ININ * extGabaIN;
 
     LFP(k) = mean(Vnow);
-    zTrace(k) = mean(Y(3:7:7*NPY));           % z is position 3 in each PY neuron's 7-block
-    gGABATrace(k) = mean(Y(gGABA_idx_PY));    % you already have gGABA_idx_PY defined from earlier
+    zTrace(k) = mean(Y(3:7:7*NPY));
 
-    %Y(gGABA_idx_PY) = Y(gGABA_idx_PY) + g_EXT_PYIN * extGabaPY;
-    %Y(gGABA_idx_IN) = Y(gGABA_idx_IN) + g_EXT_ININ * extGabaIN;
     waitbar(k/nSteps, h, sprintf('Processing %d/%d', k, nSteps))
 end
 
-figure; plot(rasterT, rasterID, '.k'); xlabel('t [ms]'); ylabel('neuron id');
+figure; plot(rasterT, rasterID, '.k', 'MarkerSize', 4); xlabel('t [ms]'); ylabel('neuron id');
 
 %% ============================================================
 %  HELPER PLOTS
@@ -381,6 +383,19 @@ function check_rhythm_v2(rasterT, rasterID, NPY, t_start, t_end)
         period = lags(lags>8); period = period(locs(1));
         fprintf('[%d-%dms]: first real peak at lag=%.1fms -> %.1fHz (height=%.2f)\n', ...
             t_start, t_end, period, 1000/period, pks(1));
+    end
+end
+
+function dY = computeDY(t, Y, NPY, NIN)
+    dY = zeros(size(Y));
+    for i = 1:NPY
+        idx = (i-1)*7 + (1:7);
+        dY(idx) = PY_neuron_ode(t, Y(idx), [0,0,0,0]);
+    end
+    off = NPY*7;
+    for i = 1:NIN
+        idx = off + (i-1)*7 + (1:7);
+        dY(idx) = IN_neuron_ode(t, Y(idx), [0,0,0,0]);
     end
 end
 
