@@ -10,9 +10,10 @@ Nx = 30;
 Ny = 30;
 
 N = Nx * Ny;
-gGABA_scale = 1;
+gGABA_scale = 8;
 gNMDA_scale = 1;
-integration_method = "R4K";
+integration_method = "R4K"; % R4K, Euler
+gaba_simulation = "simple"; % simple, ode
 
 rng(1);               % Fixed seed for random number generation
 
@@ -175,6 +176,27 @@ fprintf('IN -> IN: %d\n',  sum(C(IN,IN),'all'));
 %  INITIAL STATE VECTOR
 %  ============================================================
 
+% Parameters for Tsodyks-Markram + calcium/PV GABA release parameters (paper eqs. 13-18)
+U_gaba    = 0.3;
+Util_gaba = 0.03;
+tau_D     = 2;
+tau_R     = 200;
+lambda_t  = 0.03e-3;
+Ka        = 0.2;
+alpha_ca  = 5e-3;
+KP        = 0.4;
+beta_ca   = 0.08;
+kplus     = 0.95e-3;
+kminus    = kplus/0.051;
+bt        = 100;
+c_rest    = 0.05;
+IP        = alpha_ca * c_rest^2 / (c_rest^2 + KP^2);
+
+T_X = ones(NIN,1);
+T_Y = zeros(NIN,1);
+T_c = c_rest*ones(NIN,1);
+T_b = zeros(NIN,1);
+
 % Initial conditions for IN neurons
 V0 = -65;   % chosen resting potential [mV]
 
@@ -239,10 +261,10 @@ LFP = zeros(nSteps,1);
 h = waitbar(0, 'Processing...');
 
 % External drives
-vSTIM_PY = 0;
+vSTIM_PY = 250;
 p_ext_PY = vSTIM_PY * dt / 1000;
 
-vSTIM_IN = 0;                    
+vSTIM_IN = 500;                    
 p_ext_IN = vSTIM_IN * dt / 1000;
 
 g_EXT_PYPY = 0.25;    % paper's value, PY's external excitatory conductance
@@ -273,14 +295,23 @@ for k = 1:nSteps
         dY = networkODE(t, Y, false(NPY+NIN,1), false(NPY+NIN,1), I_amp_PY, I_amp_IN, NPY, NIN);
         Y = Y + dt*dY;
     elseif integration_method == "R4K"
-        k1 = computeDY(t,        Y,          NPY, NIN);
-        k2 = computeDY(t + dt/2, Y + dt/2*k1, NPY, NIN);
-        k3 = computeDY(t + dt/2, Y + dt/2*k2, NPY, NIN);
-        k4 = computeDY(t + dt,   Y + dt*k3,   NPY, NIN);
-        Y = Y + (dt/6)*(k1 + 2*k2 + 2*k3 + k4);
+        if gaba_simulation == "ode"
+            Yrel = T_Y;   % freeze this step's release fraction for the RK4 substeps
+            k1 = computeDY(t,        Y,           NPY, NIN, C_INPY, C_ININ, gGABA_scale*0.8e-3, gGABA_scale*5e-4, Yrel);
+            k2 = computeDY(t + dt/2, Y + dt/2*k1, NPY, NIN, C_INPY, C_ININ, gGABA_scale*0.8e-3, gGABA_scale*5e-4, Yrel);
+            k3 = computeDY(t + dt/2, Y + dt/2*k2, NPY, NIN, C_INPY, C_ININ, gGABA_scale*0.8e-3, gGABA_scale*5e-4, Yrel);
+            k4 = computeDY(t + dt,   Y + dt*k3,   NPY, NIN, C_INPY, C_ININ, gGABA_scale*0.8e-3, gGABA_scale*5e-4, Yrel);
+            Y = Y + (dt/6)*(k1 + 2*k2 + 2*k3 + k4);
+        elseif gaba_simulation == "simple"
+            k1 = computeDY_simple(t,        Y,          NPY, NIN);
+            k2 = computeDY_simple(t + dt/2, Y + dt/2*k1, NPY, NIN);
+            k3 = computeDY_simple(t + dt/2, Y + dt/2*k2, NPY, NIN);
+            k4 = computeDY_simple(t + dt,   Y + dt*k3,   NPY, NIN);
+            Y = Y + (dt/6)*(k1 + 2*k2 + 2*k3 + k4);
+        end
     end
 
-    % ---- 2. spike detection (must come BEFORE using spikedPY/spikedIN below) ----
+    % ---- 2. spike detection  ----
     Vnow = Y([Vidx_PY, Vidx_IN]);
     spiked = (Vprev < 0) & (Vnow >= 0);
     Vprev = Vnow;
@@ -294,8 +325,7 @@ for k = 1:nSteps
     end
 
     % ---- 3. recurrent AMPA/GABA jumps, full magnitude ----
-    Y(gGABA_idx_PY) = Y(gGABA_idx_PY) + gGABA_scale*0.8e-3 * (C_INPY * spikedIN);
-    Y(gGABA_idx_IN) = Y(gGABA_idx_IN) + gGABA_scale*5e-4   * (C_ININ * spikedIN);
+
     % recurrent AMPA (existing) + NMDA (new)
     Y(gAMPA_idx_PY)  = Y(gAMPA_idx_PY)  + 7.5e-3 * (C_PYPY * spikedPY);
     Y(gNMDAs_idx_PY) = Y(gNMDAs_idx_PY) + gNMDA_scale*0.4*7.5e-3 * (C_PYPY * spikedPY); 
@@ -309,15 +339,21 @@ for k = 1:nSteps
     Y(gNMDAf_idx_PY) = Y(gNMDAf_idx_PY) + gNMDA_scale*0.4*g_EXT_PYPY * extSpikePY;       
     Y(gAMPA_idx_IN)  = Y(gAMPA_idx_IN)  + g_EXT_INPY * extSpikeIN;
     Y(gNMDAs_idx_IN) = Y(gNMDAs_idx_IN) + gNMDA_scale*0.1*g_EXT_INPY * extSpikeIN;      
-    Y(gNMDAf_idx_IN) = Y(gNMDAf_idx_IN) + gNMDA_scale*0.1*g_EXT_INPY * extSpikeIN;        
-    
-    gGABATrace(k) = mean(Y(gGABA_idx_PY));
-    Y(gGABA_idx_PY) = Y(gGABA_idx_PY) + g_EXT_PYIN * extGabaPY;
-    Y(gGABA_idx_IN) = Y(gGABA_idx_IN) + g_EXT_ININ * extGabaIN;
+    Y(gNMDAf_idx_IN) = Y(gNMDAf_idx_IN) + gNMDA_scale*0.1*g_EXT_INPY * extSpikeIN;  
+
+    % GABA terminal update 
+    if gaba_simulation == "ode"
+        [T_X,T_Y,T_c,T_b] = gaba_terminal_step(T_X,T_Y,T_c,T_b,spikedIN,dt, U_gaba,Util_gaba,tau_D,tau_R,lambda_t,Ka,alpha_ca,KP,beta_ca,kplus,kminus,bt,IP);
+    elseif gaba_simulation == "simple"
+        Y(gGABA_idx_PY) = Y(gGABA_idx_PY) + gGABA_scale*0.8e-3 * (C_INPY * spikedIN);
+        Y(gGABA_idx_IN) = Y(gGABA_idx_IN) + gGABA_scale*5e-4   * (C_ININ * spikedIN);
+        Y(gGABA_idx_PY) = Y(gGABA_idx_PY) + g_EXT_PYIN * extGabaPY;
+        Y(gGABA_idx_IN) = Y(gGABA_idx_IN) + g_EXT_ININ * extGabaIN;
+    end
 
     LFP(k) = mean(Vnow);
     zTrace(k) = mean(Y(3:7:7*NPY));
-
+    gGABATrace(k) = mean(Y(gGABA_idx_PY));
     waitbar(k/nSteps, h, sprintf('Processing %d/%d', k, nSteps))
 end
 
@@ -386,7 +422,27 @@ function check_rhythm_v2(rasterT, rasterID, NPY, t_start, t_end)
     end
 end
 
-function dY = computeDY(t, Y, NPY, NIN)
+function dY_out = computeDY(t, Y, NPY, NIN, C_INPY, C_ININ, g_GABA_PYIN, g_GABA_ININ, Yrel)
+    dY_out = zeros(size(Y));
+    for i = 1:NPY
+        idx = (i-1)*7 + (1:7);
+        dY_out(idx) = PY_neuron_ode(t, Y(idx), [0,0,0,0]);
+    end
+    off = NPY*7;
+    for i = 1:NIN
+        idx = off + (i-1)*7 + (1:7);
+        dY_out(idx) = IN_neuron_ode(t, Y(idx), [0,0,0,0]);
+    end
+    gGABA_idx_PY = 7:7:7*NPY;
+    gGABA_idx_IN = off+7:7:off+7*NIN;
+    dY_out(gGABA_idx_PY) = dY_out(gGABA_idx_PY) + g_GABA_PYIN*(C_INPY*Yrel);
+    dY_out(gGABA_idx_IN) = dY_out(gGABA_idx_IN) + g_GABA_ININ*(C_ININ*Yrel);
+end
+
+check_rhythm_v2(rasterT, rasterID, NPY, 100, 250);
+check_rhythm_v2(rasterT, rasterID, NPY, 350, 500);
+
+function dY = computeDY_simple(t, Y, NPY, NIN)
     dY = zeros(size(Y));
     for i = 1:NPY
         idx = (i-1)*7 + (1:7);
@@ -398,6 +454,3 @@ function dY = computeDY(t, Y, NPY, NIN)
         dY(idx) = IN_neuron_ode(t, Y(idx), [0,0,0,0]);
     end
 end
-
-check_rhythm_v2(rasterT, rasterID, NPY, 100, 250);
-check_rhythm_v2(rasterT, rasterID, NPY, 350, 500);
