@@ -12,9 +12,13 @@ function f = PY_neuron_ode(t, x, p)
     %   x(7) = gGABA   - GABA conductance
     %
     % Parameters:
-    %   p(1) = Iext       - external current
-    %   p(2) = spike_AMPA - presynaptic AMPA spike train (0 or 1)
-    %   p(3) = spike_GABA - presynaptic GABA spike train (0 or 1)
+    %   p(1) = Iext             - external current
+    %   p(2) = I_freq           - external exitation frequency
+    %   p(3) = spike_AMPA       - presynaptic AMPA spike train (0 or 1)
+    %   p(4) = spike_GABA       - presynaptic GABA spike train (0 or 1)
+    %   p(5) = spike_AMPA_ext   - binary external exitatory arival
+    %   p(6) = spike_GABA_ext   - binary external inhibitory arival
+    %   p(7) = dt_local
     
     %% Unpack states
 
@@ -34,8 +38,11 @@ function f = PY_neuron_ode(t, x, p)
     gGABA  = x(7);
     
     %% Unpack parameters
-    spike_AMPA = p(3);   % 1 if presynaptic excitatory spike, else 0
-    spike_GABA = p(4);   % 1 if presynaptic inhibitory spike, else 0
+    spike_AMPA      = p(3);   % 1 if presynaptic excitatory spike, else 0
+    spike_GABA      = p(4);   % 1 if presynaptic inhibitory spike, else 0
+    spike_AMPA_ext  = p(5);   % external excitatory arrival (binary)
+    spike_GABA_ext  = p(6);   % external inhibitory arrival (binary)
+    dt_local        = p(7);
     
     %% Membrane parameters
     GNa = 10;
@@ -61,6 +68,9 @@ function f = PY_neuron_ode(t, x, p)
     % GABA
     tau_GABA  = 8;      % decay time [ms]
     g_GABA    = 0.8e-3; % peak conductance [mS/cm2]
+
+    g_EXT_PYPY = 0.25;
+    g_EXT_PYIN = 0.025;
     
     %% Gating variables
     m_inf = 0.5 * (1 + tanh((Vm + 1.2) / 23));
@@ -95,10 +105,17 @@ function f = PY_neuron_ode(t, x, p)
     
     %% Synaptic conductance ODEs (eq 8-9 from paper)
     % Each conductance decays exponentially and jumps at each spike
-    dgAMPA  = -gAMPA  / tau_AMPA  + g_AMPA  * spike_AMPA;
-    dgNMDAs = -gNMDAs / tau_NMDA_S + g_NMDA * spike_AMPA;
-    dgNMDAf = -gNMDAf / tau_NMDA_F + g_NMDA * spike_AMPA;
-    dgGABA  = -gGABA  / tau_GABA  + g_GABA  * spike_GABA;
+    dgAMPA  = -gAMPA/tau_AMPA + (g_AMPA/dt_local)*spike_AMPA + (g_EXT_PYPY/dt_local)*spike_AMPA_ext;
+    dgNMDAs = -gNMDAs/tau_NMDA_S + (g_NMDA/dt_local)*spike_AMPA + (0.4*g_EXT_PYPY/dt_local)*spike_AMPA_ext;
+    dgNMDAf = -gNMDAf/tau_NMDA_F + (g_NMDA/dt_local)*spike_AMPA + (0.4*g_EXT_PYPY/dt_local)*spike_AMPA_ext;
+    dgGABA  = -gGABA/tau_GABA + (g_GABA/dt_local)*spike_GABA + (g_EXT_PYIN/dt_local)*spike_GABA_ext;
+
+    if spike_GABA ~= 0
+        spike_GABA
+    end
+    if spike_AMPA ~= 0
+        spike_AMPA
+    end
     
     %% Pack output
     f = [dVm; dw; dz; dgAMPA; dgNMDAs; dgNMDAf; dgGABA];
