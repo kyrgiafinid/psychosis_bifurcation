@@ -39,7 +39,7 @@ function f = PY_neuron_ode(t, x, p)
     
     %% Unpack parameters
     spike_AMPA      = p(3);   % 1 if presynaptic excitatory spike, else 0
-    spike_GABA      = p(4);   % 1 if presynaptic inhibitory spike, else 0
+    gGABA_source_PY      = p(4);   % 1 if presynaptic inhibitory spike, else 0
     spike_AMPA_ext  = p(5);   % external excitatory arrival (binary)
     spike_GABA_ext  = p(6);   % external inhibitory arrival (binary)
     dt_local        = p(7);
@@ -95,6 +95,8 @@ function f = PY_neuron_ode(t, x, p)
     % AMPA and NMDA are excitatory (depolarizing, negative sign removes them)
     % GABA is inhibitory
     Isyn = Iampa + Inmda + Igaba;
+
+    %fprintf('PY Isyn = %.5f', Isyn)
     
     %% Membrane potential ODE
     dVm = (-Iion - Isyn + Iext) / Cm;
@@ -103,18 +105,20 @@ function f = PY_neuron_ode(t, x, p)
     dw = 0.15 * (w_inf - w) * cosh((Vm - 2) / 42);
     dz = 0.005 * (z_inf - z);
     
+    scale_AMPA = 5;
     %% Synaptic conductance ODEs (eq 8-9 from paper)
     % Each conductance decays exponentially and jumps at each spike
-    dgAMPA  = -gAMPA/tau_AMPA + (g_AMPA/dt_local)*spike_AMPA + (g_EXT_PYPY/dt_local)*spike_AMPA_ext;
-    dgNMDAs = -gNMDAs/tau_NMDA_S + (g_NMDA/dt_local)*spike_AMPA + (0.4*g_EXT_PYPY/dt_local)*spike_AMPA_ext;
-    dgNMDAf = -gNMDAf/tau_NMDA_F + (g_NMDA/dt_local)*spike_AMPA + (0.4*g_EXT_PYPY/dt_local)*spike_AMPA_ext;
-    dgGABA  = -gGABA/tau_GABA + (g_GABA/dt_local)*spike_GABA + (g_EXT_PYIN/dt_local)*spike_GABA_ext;
+    dgAMPA  = -gAMPA/tau_AMPA + (g_AMPA/dt_local)*spike_AMPA * scale_AMPA + (g_EXT_PYPY/dt_local)*spike_AMPA_ext;
+    dgNMDAs = -gNMDAs/tau_NMDA_S + (g_NMDA/dt_local)*spike_AMPA* scale_AMPA + (0.4*g_EXT_PYPY/dt_local)*spike_AMPA_ext;
+    dgNMDAf = -gNMDAf/tau_NMDA_F + (g_NMDA/dt_local)*spike_AMPA* scale_AMPA + (0.4*g_EXT_PYPY/dt_local)*spike_AMPA_ext;
+    dgGABA  = 0; %-gGABA/tau_GABA + gGABA_source_PY + (g_EXT_PYIN/dt_local)*spike_GABA_ext;
 
-    if spike_GABA ~= 0
-        spike_GABA
-    end
+    %if gGABA_source_PY ~= 0
+    %    gGABA_source_PY
+    %end
     if spike_AMPA ~= 0
-        spike_AMPA
+        spike_AMPA;
+        dt_local;
     end
     
     %% Pack output

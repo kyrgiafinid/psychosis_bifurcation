@@ -39,7 +39,7 @@ function f = IN_neuron_ode(t, x, p)
     
     %% Unpack parameters
     spike_AMPA = p(3);   % 1 if presynaptic excitatory spike, else 0
-    spike_GABA = p(4);   % 1 if presynaptic inhibitory spike, else 0
+    gGABA_source_IN = p(4);   % 1 if presynaptic inhibitory spike, else 0
     spike_AMPA_ext = p(5);
     spike_GABA_ext = p(6);
     dt_local       = p(7);
@@ -101,6 +101,8 @@ function f = IN_neuron_ode(t, x, p)
     Igaba = gGABA       * (V - EGABA);   % inhibitory (from other IN)
  
     Isyn = Iampa + Inmda + Igaba;
+
+    %fprintf('IN Isyn = %.5f', Isyn)
  
     %% Membrane potential ODE
     dV = (-Iion - Isyn + Iext) / Cm;
@@ -113,13 +115,13 @@ function f = IN_neuron_ode(t, x, p)
     dgAMPA  = -gAMPA/tau_AMPA + (g_AMPA/dt_local)*spike_AMPA + (g_EXT_INPY/dt_local)*spike_AMPA_ext;
     dgNMDAs = -gNMDAs/tau_NMDA_S + (g_NMDA/dt_local)*spike_AMPA + (0.1*g_EXT_INPY/dt_local)*spike_AMPA_ext;
     dgNMDAf = -gNMDAf/tau_NMDA_F + (g_NMDA/dt_local)*spike_AMPA + (0.1*g_EXT_INPY/dt_local)*spike_AMPA_ext;
-    dgGABA  = -gGABA/tau_GABA + (g_GABA/dt_local)*spike_GABA + (g_EXT_ININ/dt_local)*spike_GABA_ext;
+    dgGABA  = 0; %-gGABA/tau_GABA + gGABA_source_IN + (g_EXT_ININ/dt_local)*spike_GABA_ext;
     
-    if spike_GABA ~= 0
-        spike_GABA
-    end
+    %if gGABA_source_IN ~= 0
+    %    gGABA_source_IN
+    %end
     if spike_AMPA ~= 0
-        spike_AMPA
+        spike_AMPA;
     end
  
     %% Pack output
