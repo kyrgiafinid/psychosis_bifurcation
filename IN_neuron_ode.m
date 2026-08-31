@@ -80,7 +80,7 @@ function f = IN_neuron_ode(t, x, p)
  
     % GABA (from other IN cells)
     tau_GABA  = 8;        % decay time [ms]
-    gGABA     = 5e-4;     % peak conductance [mS/cm2]  (g_GABA^{IN<-IN})
+    g_GABA     = 5e-4;     % peak conductance [mS/cm2]  (g_GABA^{IN<-IN})
 
     g_EXT_INPY = 0.003;
     g_EXT_ININ = 1e-4;
@@ -127,11 +127,11 @@ function f = IN_neuron_ode(t, x, p)
     dh = phi * (alpha_h * (1 - h) - beta_h * h);
     dn = phi * (alpha_n * (1 - n) - beta_n * n);
     
-    scale_AMPA = 10;
+    scale_AMPA = 1;
     %% Synaptic conductance ODEs (eq 8-9 from paper)
     dgAMPA  = -gAMPA/tau_AMPA + (g_AMPA/dt_local)*spike_AMPA*scale_AMPA + (g_EXT_INPY/dt_local)*spike_AMPA_ext;
-    dgNMDAs = -gNMDAs/tau_NMDA_S + (g_NMDA/dt_local)*spike_AMPA*scale_AMPA + (0.1*g_EXT_INPY/dt_local)*spike_AMPA_ext;
-    dgNMDAf = -gNMDAf/tau_NMDA_F + (g_NMDA/dt_local)*spike_AMPA*scale_AMPA + (0.1*g_EXT_INPY/dt_local)*spike_AMPA_ext;
+    dgNMDAs = -gNMDAs/tau_NMDA_S + (g_NMDA/dt_local)*spike_AMPA*gNMDA_scale + (0.1*g_EXT_INPY/dt_local)*spike_AMPA_ext;
+    dgNMDAf = -gNMDAf/tau_NMDA_F + (g_NMDA/dt_local)*spike_AMPA*gNMDA_scale + (0.1*g_EXT_INPY/dt_local)*spike_AMPA_ext;
     dgGABA  = -gGABA/tau_GABA + gGABA_source_IN + (g_EXT_ININ/dt_local)*spike_GABA_ext;
     
     U_gaba=0.3; Util_gaba=0.03; beta_ca=0.08;
@@ -145,13 +145,7 @@ function f = IN_neuron_ode(t, x, p)
     dc = -pump - buffer + IP + (beta_ca/dt_local)*spike_own_IN;
     db = buffer;
 
-    %if gGABA_source_IN ~= 0
-    %    gGABA_source_IN
-    %end
-    if spike_AMPA ~= 0
-        spike_AMPA;
-    end
- 
+
     %% Pack output
     f = [dV; dh; dn; dgAMPA; dgNMDAs; dgNMDAf; dgGABA; dX; dY; dc; db];
 end

@@ -65,7 +65,7 @@ function f = PY_neuron_ode(t, x, p)
     
     % GABA
     tau_GABA  = 8;      % decay time [ms]
-    gGABA     = 0.8e-3; % peak conductance [mS/cm2]
+    g_GABA     = 0.8e-3; % peak conductance [mS/cm2]
 
     g_EXT_PYPY = 0.25;
     g_EXT_PYIN = 0.025;
@@ -103,7 +103,7 @@ function f = PY_neuron_ode(t, x, p)
     dw = 0.15 * (w_inf - w) * cosh((Vm - 2) / 42);
     dz = 0.005 * (z_inf - z);
     
-    scale_AMPA = 5;
+    scale_AMPA = 1;
     %% Synaptic conductance ODEs (eq 8-9 from paper)
     % Each conductance decays exponentially and jumps at each spike
     dgAMPA  = -gAMPA/tau_AMPA + (g_AMPA/dt_local)*spike_AMPA * scale_AMPA + (g_EXT_PYPY/dt_local)*spike_AMPA_ext;
@@ -111,13 +111,5 @@ function f = PY_neuron_ode(t, x, p)
     dgNMDAf = -gNMDAf/tau_NMDA_F + (g_NMDA/dt_local)*spike_AMPA* scale_AMPA + (0.4*g_EXT_PYPY/dt_local)*spike_AMPA_ext;
     dgGABA  = -gGABA/tau_GABA + gGABA_source_PY + (g_EXT_PYIN/dt_local)*spike_GABA_ext;
 
-    %if gGABA_source_PY ~= 0
-    %    gGABA_source_PY
-    %end
-    if spike_AMPA ~= 0
-        spike_AMPA;
-        dt_local;
-    end
-    dt_local
     %% Pack output
     f = [dVm; dw; dz; dgAMPA; dgNMDAs; dgNMDAf; dgGABA];
