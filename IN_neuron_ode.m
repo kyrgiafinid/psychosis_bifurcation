@@ -10,6 +10,7 @@ function f = IN_neuron_ode(t, x, p)
     %   x(5) = gNMDA_S - slow NMDA conductance
     %   x(6) = gNMDA_F - fast NMDA conductance
     %   x(7) = gGABA   - GABA conductance
+    %   x(8)=X  x(9)=Y  x(10)=c  x(11)=b     <- GABA release terminal state
     %
     % Parameters:
     %   p(1) = Iext       - external current
@@ -19,6 +20,10 @@ function f = IN_neuron_ode(t, x, p)
     %   p(5) = spike_AMPA_ext   - binary external exitatory arival
     %   p(6) = spike_GABA_ext   - binary external inhibitory arival
     %   p(7) = dt_local
+    %   p(8) = gNMDA_scale
+    %   p(9) = bt (PV concentration for THIS neuron's terminal)
+    %   p(10)= spike_own_IN (this neuron's own spike, triggers phasic release)
+    %   p(11)= asyncEvent_own (stochastic async-release flag, decided before RK4)
     
     %% Unpack states
 
@@ -36,6 +41,7 @@ function f = IN_neuron_ode(t, x, p)
     gNMDAs = x(5);
     gNMDAf = x(6);
     gGABA  = x(7);
+    X = x(8); Y = x(9); c = x(10); b = x(11);
     
     %% Unpack parameters
     spike_AMPA = p(3);   % 1 if presynaptic excitatory spike, else 0
@@ -43,6 +49,10 @@ function f = IN_neuron_ode(t, x, p)
     spike_AMPA_ext = p(5);
     spike_GABA_ext = p(6);
     dt_local       = p(7);
+    gNMDA_scale     = p(8);
+    bt              = p(9);
+    spike_own_IN    = p(10);   % this neuron's OWN spike this step (phasic trigger)
+    asyncEvent_own  = p(11);   % stochastic async-release flag, decided before RK4, frozen across substeps
     
     %% Membrane parameters
     gNa = 35;
@@ -70,10 +80,16 @@ function f = IN_neuron_ode(t, x, p)
  
     % GABA (from other IN cells)
     tau_GABA  = 8;        % decay time [ms]
-    g_GABA    = 5e-4;     % peak conductance [mS/cm2]  (g_GABA^{IN<-IN})
+    gGABA     = 5e-4;     % peak conductance [mS/cm2]  (g_GABA^{IN<-IN})
 
     g_EXT_INPY = 0.003;
     g_EXT_ININ = 1e-4;
+
+    % ---- GABA release terminal constants (Tsodyks-Markram + calcium/PV) ----
+    tau_D=2; tau_R=200;
+    alpha_ca=5e-3; KP=0.4; kplus=0.95e-3; kminus=kplus/0.051;
+    c_rest=0.05;
+    IP = alpha_ca*c_rest^2/(c_rest^2+KP^2);
     
     %% Gating kinetics (Wang-Buzsaki)
     alpha_m = -0.1 * (V + 35) ./ (exp(-0.1 * (V + 35)) - 1);
@@ -110,13 +126,25 @@ function f = IN_neuron_ode(t, x, p)
     %% Gating ODEs
     dh = phi * (alpha_h * (1 - h) - beta_h * h);
     dn = phi * (alpha_n * (1 - n) - beta_n * n);
- 
-    %% Synaptic conductance ODEs (eq 8-9 from paper)
-    dgAMPA  = -gAMPA/tau_AMPA + (g_AMPA/dt_local)*spike_AMPA + (g_EXT_INPY/dt_local)*spike_AMPA_ext;
-    dgNMDAs = -gNMDAs/tau_NMDA_S + (g_NMDA/dt_local)*spike_AMPA + (0.1*g_EXT_INPY/dt_local)*spike_AMPA_ext;
-    dgNMDAf = -gNMDAf/tau_NMDA_F + (g_NMDA/dt_local)*spike_AMPA + (0.1*g_EXT_INPY/dt_local)*spike_AMPA_ext;
-    dgGABA  = 0; %-gGABA/tau_GABA + gGABA_source_IN + (g_EXT_ININ/dt_local)*spike_GABA_ext;
     
+    scale_AMPA = 10;
+    %% Synaptic conductance ODEs (eq 8-9 from paper)
+    dgAMPA  = -gAMPA/tau_AMPA + (g_AMPA/dt_local)*spike_AMPA*scale_AMPA + (g_EXT_INPY/dt_local)*spike_AMPA_ext;
+    dgNMDAs = -gNMDAs/tau_NMDA_S + (g_NMDA/dt_local)*spike_AMPA*scale_AMPA + (0.1*g_EXT_INPY/dt_local)*spike_AMPA_ext;
+    dgNMDAf = -gNMDAf/tau_NMDA_F + (g_NMDA/dt_local)*spike_AMPA*scale_AMPA + (0.1*g_EXT_INPY/dt_local)*spike_AMPA_ext;
+    dgGABA  = -gGABA/tau_GABA + gGABA_source_IN + (g_EXT_ININ/dt_local)*spike_GABA_ext;
+    
+    U_gaba=0.3; Util_gaba=0.03; beta_ca=0.08;
+ 
+    % ---- GABA release terminal, now FULLY continuous (jumps folded in via /dt trick) ----
+    Z = 1 - X - Y;
+    dX = Z/tau_R - (U_gaba/dt_local)*X*spike_own_IN - (Util_gaba/dt_local)*X*asyncEvent_own;
+    dY = -Y/tau_D + (U_gaba/dt_local)*X*spike_own_IN + (Util_gaba/dt_local)*X*asyncEvent_own;
+    pump = alpha_ca*c^2/(c^2+KP^2);
+    buffer = kplus*(bt-b)*c - kminus*b;
+    dc = -pump - buffer + IP + (beta_ca/dt_local)*spike_own_IN;
+    db = buffer;
+
     %if gGABA_source_IN ~= 0
     %    gGABA_source_IN
     %end
@@ -125,5 +153,6 @@ function f = IN_neuron_ode(t, x, p)
     end
  
     %% Pack output
-    f = [dV; dh; dn; dgAMPA; dgNMDAs; dgNMDAf; dgGABA];
+    f = [dV; dh; dn; dgAMPA; dgNMDAs; dgNMDAf; dgGABA; dX; dY; dc; db];
+end
  

@@ -22,11 +22,9 @@ function f = PY_neuron_ode(t, x, p)
     
     %% Unpack states
 
-    % Time varying input
+    % Time varying externa input
     I_amp  = p(1);   % amplitude
     I_freq = p(2);   % frequency [Hz]
-    
-    % Sinusoidal drive
     Iext = I_amp * (1 + sin(2*pi*I_freq*t/1000));
 
     Vm     = x(1);
@@ -67,7 +65,7 @@ function f = PY_neuron_ode(t, x, p)
     
     % GABA
     tau_GABA  = 8;      % decay time [ms]
-    g_GABA    = 0.8e-3; % peak conductance [mS/cm2]
+    gGABA     = 0.8e-3; % peak conductance [mS/cm2]
 
     g_EXT_PYPY = 0.25;
     g_EXT_PYIN = 0.025;
@@ -111,7 +109,7 @@ function f = PY_neuron_ode(t, x, p)
     dgAMPA  = -gAMPA/tau_AMPA + (g_AMPA/dt_local)*spike_AMPA * scale_AMPA + (g_EXT_PYPY/dt_local)*spike_AMPA_ext;
     dgNMDAs = -gNMDAs/tau_NMDA_S + (g_NMDA/dt_local)*spike_AMPA* scale_AMPA + (0.4*g_EXT_PYPY/dt_local)*spike_AMPA_ext;
     dgNMDAf = -gNMDAf/tau_NMDA_F + (g_NMDA/dt_local)*spike_AMPA* scale_AMPA + (0.4*g_EXT_PYPY/dt_local)*spike_AMPA_ext;
-    dgGABA  = 0; %-gGABA/tau_GABA + gGABA_source_PY + (g_EXT_PYIN/dt_local)*spike_GABA_ext;
+    dgGABA  = -gGABA/tau_GABA + gGABA_source_PY + (g_EXT_PYIN/dt_local)*spike_GABA_ext;
 
     %if gGABA_source_PY ~= 0
     %    gGABA_source_PY
@@ -120,6 +118,6 @@ function f = PY_neuron_ode(t, x, p)
         spike_AMPA;
         dt_local;
     end
-    
+    dt_local
     %% Pack output
     f = [dVm; dw; dz; dgAMPA; dgNMDAs; dgNMDAf; dgGABA];
