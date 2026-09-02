@@ -71,7 +71,7 @@ function f = IN_neuron_ode(t, x, p)
     %% Synaptic conductance parameters (PY -> IN and IN -> IN, from paper)
     % AMPA (from PY cells)
     tau_AMPA  = 2;        % decay time [ms]
-    g_AMPA    = 2e-3;     % peak conductance [mS/cm2]  (g_AMPA^{IN<-PY})
+    g_AMPA    = 2e-3;     % peak conductance [mS/cm2] 
  
     % NMDA (from PY cells; faster slow-component decay and smaller peak than PY-PY, eq 11)
     tau_NMDA_S = 50;      % slow decay [ms] = 0.5 * tau_NMDA_S^{PY<-PY}
@@ -80,16 +80,19 @@ function f = IN_neuron_ode(t, x, p)
  
     % GABA (from other IN cells)
     tau_GABA  = 8;        % decay time [ms]
-    g_GABA     = 5e-4;     % peak conductance [mS/cm2]  (g_GABA^{IN<-IN})
 
     g_EXT_INPY = 0.003;
     g_EXT_ININ = 1e-4;
 
     % ---- GABA release terminal constants (Tsodyks-Markram + calcium/PV) ----
     tau_D=2; tau_R=200;
-    alpha_ca=5e-3; KP=0.4; kplus=0.95e-3; kminus=kplus/0.051;
+    alpha_ca=5e-3; KP=0.4; kminus=0.95e-3; kplus=kminus/0.051;
     c_rest=0.05;
-    IP = alpha_ca*c_rest^2/(c_rest^2+KP^2);
+    IP = 0.0001102; %alpha_ca*c_rest^2/(c_rest^2+KP^2);
+
+    %tau_D=2; tau_R=200; kminus = 0.95; kplus=kminus/0.051; 
+    %alpha_ca=5e-3; KP=0.4; c_rest=0.05;
+    %IP = alpha_ca*c_rest^2/(c_rest^2+KP^2);
     
     %% Gating kinetics (Wang-Buzsaki)
     alpha_m = -0.1 * (V + 35) ./ (exp(-0.1 * (V + 35)) - 1);
@@ -127,22 +130,27 @@ function f = IN_neuron_ode(t, x, p)
     dh = phi * (alpha_h * (1 - h) - beta_h * h);
     dn = phi * (alpha_n * (1 - n) - beta_n * n);
     
-    scale_AMPA = 1;
     %% Synaptic conductance ODEs (eq 8-9 from paper)
-    dgAMPA  = -gAMPA/tau_AMPA + (g_AMPA/dt_local)*spike_AMPA*scale_AMPA + (g_EXT_INPY/dt_local)*spike_AMPA_ext;
-    dgNMDAs = -gNMDAs/tau_NMDA_S + (g_NMDA/dt_local)*spike_AMPA*gNMDA_scale + (0.1*g_EXT_INPY/dt_local)*spike_AMPA_ext;
-    dgNMDAf = -gNMDAf/tau_NMDA_F + (g_NMDA/dt_local)*spike_AMPA*gNMDA_scale + (0.1*g_EXT_INPY/dt_local)*spike_AMPA_ext;
+    dgAMPA  = -gAMPA/tau_AMPA + (g_AMPA/dt_local)*spike_AMPA + (g_EXT_INPY/dt_local)*spike_AMPA_ext;
+    dgNMDAs = -gNMDAs/tau_NMDA_S + (g_NMDA/dt_local)*spike_AMPA + (0.1*g_EXT_INPY/dt_local)*spike_AMPA_ext;
+    dgNMDAf = -gNMDAf/tau_NMDA_F + (g_NMDA/dt_local)*spike_AMPA + (0.1*g_EXT_INPY/dt_local)*spike_AMPA_ext;
     dgGABA  = -gGABA/tau_GABA + gGABA_source_IN + (g_EXT_ININ/dt_local)*spike_GABA_ext;
     
     U_gaba=0.3; Util_gaba=0.03; beta_ca=0.08;
- 
+    
     % ---- GABA release terminal, now FULLY continuous (jumps folded in via /dt trick) ----
     Z = 1 - X - Y;
     dX = Z/tau_R - (U_gaba/dt_local)*X*spike_own_IN - (Util_gaba/dt_local)*X*asyncEvent_own;
     dY = -Y/tau_D + (U_gaba/dt_local)*X*spike_own_IN + (Util_gaba/dt_local)*X*asyncEvent_own;
     pump = alpha_ca*c^2/(c^2+KP^2);
     buffer = kplus*(bt-b)*c - kminus*b;
-    dc = -pump - buffer + IP + (beta_ca/dt_local)*spike_own_IN;
+
+    % dc spike term, paper eq 17
+    c_safe = max(c, 1e-6);                     % guard the log at c -> 0
+    dc_spike = beta_ca * log(c_rest/c_safe);
+    dc_spike = max(dc_spike, 0);    
+
+    dc = -pump - buffer + IP + (dc_spike/dt_local)*spike_own_IN;
     db = buffer;
 
 

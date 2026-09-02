@@ -12,8 +12,7 @@ Ny = 30;
 N = Nx * Ny;
 gGABA_scale = 1;
 gNMDA_scale = 1;
-integration_method = "R4K"; % R4K, Euler
-gaba_simulation = "ode"; % simple, ode
+integration_method = "Euler";
 
 rng(1);               % Fixed seed for random number generation
 
@@ -186,27 +185,15 @@ fprintf('IN -> IN: %d\n',  sum(C(IN,IN),'all'));
 nStatesIN = 11;
 nStatesPY = 7;
 
+g_GABA_IN = 0.0005;
+g_GABA_PY = 0.0008;
+
 % Parameters for Tsodyks-Markram + calcium/PV GABA release parameters (paper eqs. 13-18)
-U_gaba    = 0.3;
-Util_gaba = 0.03;
-tau_D     = 2;
-tau_R     = 200;
-lambda_t  = 0.03e-3;
-Ka        = 0.2;
-beta      = 5;
-KP        = 0.4;
-gama      = 0.08;
-
-kminus    = 0.95;
-kplus     = kminus/0.051;
-bt        = 100;
-c_rest    = 0.05;
-IP        = 0.1102; % beta * c_rest^2 / (c_rest^2 + KP^2);
-
-T_X = ones(NIN,1);
-T_Y = zeros(NIN,1);
-T_c = c_rest*ones(NIN,1);
-T_b = zeros(NIN,1);
+lambda_t = 0.03e-3;
+Ka = 0.2;
+bt = 100;
+c_rest = 0.05;
+bt_vec = bt * ones(NIN,1);
 
 % Initial conditions for IN neurons
 V0 = -65;   % chosen resting potential [mV]
@@ -241,7 +228,7 @@ Y_PY = [Vm_rest;    % Vm
       z_rest;       % z
       0;            % gAMPA   - no synapse active yet
       0;            % gNMDA_S - no synapse active yet
-      0;            % gNMDA_F - no synapse active yet
+      0;       % gNMDA_F - no synapse active yet
       0];           % gGABA   - no synapse active yet
 
 % ---- reorder connectivity to match Y's [PY block; IN block] layout ----
@@ -258,7 +245,7 @@ I_amp_PY = zeros(NPY,1);
 I_amp_IN = zeros(NIN,1);
 
 dt = 0.05;          
-T_total = 1000;
+T_total = 300;
 nSteps = round(T_total/dt);
 
 Y = [repmat(Y_PY, NPY, 1); repmat(Y_IN, NIN, 1)];
@@ -294,7 +281,6 @@ gGABA_idx_PY = 7:7:7*NPY;
 gGABA_idx_IN = 7*NPY+7 : nStatesIN : 7*NPY+nStatesIN*NIN;
 gNMDAs_idx_PY = 5:7:7*NPY;  gNMDAf_idx_PY = 6:7:7*NPY;
 gNMDAs_idx_IN = 7*NPY+5:7:7*NPY+7*NIN;  gNMDAf_idx_IN = 7*NPY+6:7:7*NPY+7*NIN;
-bt_vec = bt * ones(NIN,1); 
 
 % testing plots 
 zTrace = zeros(nSteps,1);
@@ -309,37 +295,48 @@ spikedIN = false(NIN,1);
 % track state variables
 Vm_trace = zeros(nSteps, NPY+NIN); 
 GABA_trace = zeros(nSteps, NPY+NIN); 
+gNMDAsTrace = zeros(nSteps,1);
+gNMDAfTrace = zeros(nSteps,1);
+gAMPATrace  = zeros(nSteps,1);
 
 for k = 1:nSteps
-    t = k*dt;
-    extSpikePY = rand(NPY,1) < p_ext_PY;
-    extSpikeIN = rand(NIN,1) < p_ext_IN;
-    extGabaPY = rand(NPY,1) < p_ext_PY;   % same rate as extSpikePY, independent draw
-    extGabaIN = rand(NIN,1) < p_ext_IN;   % same rate as extSpikeIN, independent draw
-
-    arrivedAMPA_PY = (C_PYPY * spikedPY) > 0;
-    arrivedAMPA_IN = (C_PYIN * spikedPY) > 0;
-
-    arrivedAMPA_PY = C_PYPY * spikedPY;
-    arrivedAMPA_IN = C_PYIN * spikedPY;
     
-    % -------GABA release terminal constants (Tsodyks-Markram + calcium/PV)
-    lambda_t = 0.03e-3;   % async-release rate constant
-    Ka = 0.2;              % calcium affinity of async release
+        t = k*dt;
+        extSpikePY = rand(NPY,1) < p_ext_PY;
+        extSpikeIN = rand(NIN,1) < p_ext_IN;
+        extGabaPY = rand(NPY,1) < p_ext_PY;   % same rate as extSpikePY, independent draw
+        extGabaIN = rand(NIN,1) < p_ext_IN;   % same rate as extSpikeIN, independent draw
     
-    c_prev = Y(cidx_IN);   % last step's calcium level, per IN neuron
-    lam = lambda_t .* (c_prev.^4) ./ (c_prev.^4 + Ka.^4);
-    asyncEvent = rand(NIN,1) < (1 - exp(-lam.*dt));
-    bt_vec = bt * ones(NIN,1);
-
-    Yrel = Y(Yidx_IN);  
-    gGABA_source_PY = gGABA_scale*0.8e-3 * (C_INPY * Yrel);   % NPYx1, continuous rate
-    gGABA_source_IN = gGABA_scale*5e-4   * (C_ININ * Yrel);  
-    k1 = computeDY_spikes_gaba(t,        Y,           NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, gNMDA_scale,bt_vec, spikedIN,asyncEvent);
-    k2 = computeDY_spikes_gaba(t + dt/2, Y + dt/2*k1, NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, gNMDA_scale,bt_vec, spikedIN,asyncEvent);
-    k3 = computeDY_spikes_gaba(t + dt/2, Y + dt/2*k2, NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, gNMDA_scale,bt_vec, spikedIN,asyncEvent);
-    k4 = computeDY_spikes_gaba(t + dt,   Y + dt*k3,   NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, gNMDA_scale,bt_vec, spikedIN,asyncEvent);
-    Y = Y + (dt/6)*(k1 + 2*k2 + 2*k3 + k4);
+        %arrivedAMPA_PY = (C_PYPY * spikedPY) > 0;
+        %arrivedAMPA_IN = (C_PYIN * spikedPY) > 0;
+    
+        arrivedAMPA_PY = C_PYPY * spikedPY;
+        arrivedAMPA_IN = C_PYIN * spikedPY;
+        
+        % -------GABA release terminal constants (Tsodyks-Markram + calcium/PV)
+        lambda_t = 0.03e-3;   % async-release rate constant
+        Ka = 0.2;              % calcium affinity of async release
+        
+        c_prev = Y(cidx_IN);   % last step's calcium level, per IN neuron
+        lam = lambda_t .* (c_prev.^4) ./ (c_prev.^4 + Ka.^4);
+        asyncEvent = rand(NIN,1) < (1 - exp(-lam.*dt));
+        bt_vec = bt * ones(NIN,1);
+    
+        Yrel = Y(Yidx_IN);  
+        gGABA_source_PY = gGABA_scale*g_GABA_PY * (C_INPY * Yrel);   % NPYx1, continuous rate
+        gGABA_source_IN = gGABA_scale*g_GABA_IN   * (C_ININ * Yrel);  
+   if integration_method == "R4K"
+        k1 = computeDY_spikes_gaba(t,        Y,           NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, gNMDA_scale,bt_vec, spikedIN,asyncEvent);
+        k2 = computeDY_spikes_gaba(t + dt/2, Y + dt/2*k1, NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, gNMDA_scale,bt_vec, spikedIN,asyncEvent);
+        k3 = computeDY_spikes_gaba(t + dt/2, Y + dt/2*k2, NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, gNMDA_scale,bt_vec, spikedIN,asyncEvent);
+        k4 = computeDY_spikes_gaba(t + dt,   Y + dt*k3,   NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, gNMDA_scale,bt_vec, spikedIN,asyncEvent);
+        Y = Y + (dt/6)*(k1 + 2*k2 + 2*k3 + k4);
+    elseif integration_method == "Euler"
+        dY = computeDY_spikes_gaba(t,Y,NPY,NIN,arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, gNMDA_scale,bt_vec, spikedIN,asyncEvent);
+        Y  = Y + dt*dY;          % forward Euler
+        t  = t + dt;
+    end
+    % spike detection, depletion, clamps, async draws as before
 
     % ---- 2. spike detection  ----
     Vnow = Y([Vidx_PY, Vidx_IN]);
@@ -358,6 +355,11 @@ for k = 1:nSteps
         rasterT = [rasterT; repmat(t, numel(ids),1)];
         rasterID = [rasterID; ids];
     end
+    
+    % track variables 
+    gNMDAsTrace(k) = mean(Y(7*NPY+5 : 11 : 7*NPY+11*NIN));
+    gNMDAfTrace(k) = mean(Y(6*NPY+5 : 11 : 7*NPY+11*NIN));
+    gAMPATrace(k)  = mean(Y(8*NPY+5 : 11 : 7*NPY+11*NIN));
 
     gGABA_idx_PY = 7:7:7*NPY;                      
     gGABA_idx_IN = 7*NPY+7 : 11 : 7*NPY+11*NIN;  
@@ -506,3 +508,38 @@ fprintf('t=%.2f: mean gGABA_source_PY = %.6f\n', t, mean(gGABA_source_PY));
 figure;
 subplot(2,1,1); plot((1:nSteps)*dt, gGABAsourceTrace); ylabel('mean gGABA\_source\_PY'); title('Source term over time');
 subplot(2,1,2); plot((1:nSteps)*dt, YrelMeanTrace); ylabel('mean Yrel (IN release var)'); title('IN Y state over time');
+
+window_len = 2000;   % samples = 2000/20000*1000 = 100ms of data per window -> ~10Hz resolution
+skip_ms = 100;   % exclude the initial transient (visible in your plot, roughly 0-100ms)
+skip_idx = round(skip_ms/dt);
+[s,f,t_spec] = spectrogram(LFP(skip_idx:end) - mean(LFP(skip_idx:end)), window_len, round(window_len*0.9), 2048, Fs);
+
+figure;
+imagesc(t_spec*1000 + skip_ms, f, abs(s).^2);
+axis xy;
+ylim([0 100]);
+xlabel('Time [ms]'); ylabel('Frequency [Hz]');
+title('LFP spectrogram (Fig. 1C equivalent)');
+colorbar;
+
+avg_power = mean(abs(s).^2, 2);
+[peak_val, peak_idx] = max(avg_power);
+fprintf('Dominant frequency (max time-averaged power): %.1f Hz (power=%.2e)\n', f(peak_idx), peak_val);
+
+
+%figure;
+%plot(f, avg_power);
+%xlim([0 150]);   % widen past 100Hz to see if the peak is actually higher
+%xlabel('Frequency [Hz]'); ylabel('Spectral Power');
+%title('Time-averaged spectral power');
+
+%figure;
+%tAx = (1:nSteps)*dt;
+%plot(tAx, gAMPATrace, 'LineWidth', 1); hold on;
+%plot(tAx, gNMDAsTrace, 'LineWidth', 1);
+%plot(tAx, gNMDAfTrace, 'LineWidth', 1);
+%plot(tAx, gNMDAsTrace - gNMDAfTrace, 'k--', 'LineWidth', 1.2);
+%hold off;
+%xlabel('time [ms]'); ylabel('conductance [mS/cm^2]');
+%legend('gAMPA','gNMDA_S','gNMDA_F','gNMDA_S - gNMDA_F', 'Location','best');
+title('Mean PY synaptic conductances');
