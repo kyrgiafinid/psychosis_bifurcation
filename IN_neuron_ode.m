@@ -76,19 +76,19 @@ function f = IN_neuron_ode(t, x, p)
     % NMDA (from PY cells; faster slow-component decay and smaller peak than PY-PY, eq 11)
     tau_NMDA_S = 50;      % slow decay [ms] = 0.5 * tau_NMDA_S^{PY<-PY}
     tau_NMDA_F = 2;       % fast decay [ms]
-    g_NMDA     = 0.1 * g_AMPA;  % 10% of AMPA (g_NMDA^{IN<-PY})
+    g_NMDA     = gNMDA_scale * 0.1 * g_AMPA;  % 10% of AMPA (g_NMDA^{IN<-PY})
  
     % GABA (from other IN cells)
     tau_GABA  = 8;        % decay time [ms]
 
-    g_EXT_INPY = 0.003;
+    g_EXT_INPY = gNMDA_scale * 0.003;
     g_EXT_ININ = 1e-4;
 
     % ---- GABA release terminal constants (Tsodyks-Markram + calcium/PV) ----
     tau_D=2; tau_R=200;
     alpha_ca=5e-3; KP=0.4; kminus=0.95e-3; kplus=kminus/0.051;
     c_rest=0.05;
-    IP = 0.0001102; %alpha_ca*c_rest^2/(c_rest^2+KP^2);
+    IP = alpha_ca*c_rest^2/(c_rest^2+KP^2);
 
     %tau_D=2; tau_R=200; kminus = 0.95; kplus=kminus/0.051; 
     %alpha_ca=5e-3; KP=0.4; c_rest=0.05;

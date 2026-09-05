@@ -59,14 +59,15 @@ function f = PY_neuron_ode(t, x, p)
     g_AMPA    = 7.5e-3; % peak conductance [mS/cm2]
     
     % NMDA (two components: slow and fast)
+    gNMDA_scale = 1;
     tau_NMDA_S = 100;   % slow decay [ms]
     tau_NMDA_F = 2;     % fast decay [ms]
-    g_NMDA     = 0.4 * g_AMPA;  % 40% of AMPA
+    g_NMDA     = gNMDA_scale  * 0.4 * g_AMPA;  % 40% of AMPA
     
     % GABA
     tau_GABA  = 8;      % decay time [ms]
-
-    g_EXT_PYPY = 0.25;
+    
+    g_EXT_PYPY = 0.25 * gNMDA_scale;
     g_EXT_PYIN = 0.025;
     
     %% Gating variables
