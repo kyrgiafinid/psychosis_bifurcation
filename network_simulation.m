@@ -10,14 +10,11 @@ Nx = 30;
 Ny = 30;
 
 N = Nx * Ny;
-gGABA_scale = 1;
-gNMDA_scale = 1;
-integration_method = "R4K";
 
 rng(1);               % Fixed seed for random number generation
 
 % External drives
-vSTIM_PY = 250;
+vSTIM_PY = 200;
 vSTIM_IN = 500;
 
 % Neuron types
@@ -50,7 +47,7 @@ y = yGrid(:);
 
 %% Plot lattice
 
-figure;
+figure('Name','Lattice');
 
 scatter(x(PY),y(PY),50,'b','filled');
 hold on;
@@ -60,7 +57,7 @@ scatter(x(IN),y(IN),70,'r','filled');
 xlabel('x');
 ylabel('y');
 
-title('8 x 8 neuronal lattice');
+title('Neuronal Lattice');
 
 legend('PY','IN');
 
@@ -154,7 +151,7 @@ end
 %  DISPLAY CONNECTIVITY
 %  ============================================================
 
-figure;
+figure('Name','Connectivity matrix');
 
 imagesc(C);
 
@@ -189,9 +186,9 @@ g_GABA_IN = 0.5;
 g_GABA_PY = 0.8;
 
 % Parameters for Tsodyks-Markram + calcium/PV GABA release parameters (paper eqs. 13-18)
-lambda_t = 0.03e-3;
+lambda_t = 0.03;
 Ka = 0.2;
-bt = 100;
+bt = 10;
 c_rest = 0.05;
 bt_vec = bt * ones(NIN,1);
 
@@ -228,9 +225,10 @@ Y_PY = [Vm_rest;    % Vm
       z_rest;       % z
       0;            % gAMPA   - no synapse active yet
       0;            % gNMDA_S - no synapse active yet
-      0;       % gNMDA_F - no synapse active yet
+      0;            % gNMDA_F - no synapse active yet
       0];           % gGABA   - no synapse active yet
 
+%% Initializations
 % ---- reorder connectivity to match Y's [PY block; IN block] layout ----
 C_PYPY = C(PY,PY);   % PY - PY connections
 C_INPY = C(PY,IN);   % PY - IN connections
@@ -242,37 +240,36 @@ N_in_PYIN = max(sum(C_PYIN, 2), 1);   % PY inputs per IN
 N_in_INPY = max(sum(C_INPY, 2), 1);   % IN inputs per PY
 N_in_ININ = max(sum(C_ININ, 2), 1);   % IN inputs per IN
 
-% Uncomment to add external input
-% I_amp_PY = 80 + 5*randn(NPY,1);   
-% I_amp_IN = 80 + 5*randn(NIN,1);
-
 I_amp_PY = zeros(NPY,1);
 I_amp_IN = zeros(NIN,1);
 
 dt = 0.05;          
-T_total = 300;
+T_total = 1000;
 nSteps = round(T_total/dt);
 
+%% preallocations
 Y = [repmat(Y_PY, NPY, 1); repmat(Y_IN, NIN, 1)];
 Vidx_PY = 1:nStatesPY:nStatesPY*NPY;
 Vidx_IN = nStatesPY*NPY+1 : nStatesIN : nStatesPY*NPY+nStatesIN*NIN;
 
-rasterT = []; rasterID = [];
 Vprev = Y([Vidx_PY, Vidx_IN]);   % for threshold-crossing detection
 
 spikeAMPA = false(NPY+NIN,1);
 spikeGABA = false(NPY+NIN,1);
 
-LFP = zeros(nSteps,1);
+maxSpikesExpected = nSteps * 50; 
+rasterT = zeros(maxSpikesExpected, 1);
+rasterID = zeros(maxSpikesExpected, 1);
+rasterCount = 0;
 
-h = waitbar(0, 'Processing...');
+spikedPY = false(NPY,1);
+spikedIN = false(NIN,1);
+
+totalAsyncEventCount = 0;
 
 % External drives probability calculation
 p_ext_PY = 1 - exp(-vSTIM_PY * dt / 1000);
 p_ext_IN = 1 - exp(-vSTIM_IN * dt / 1000);
-
-%test space
-%C_PYPY(:)=0; C_PYIN(:)=0; C_ININ(:)=0; p_ext_IN = 0;
 
 g_EXT_PYPY = 0.25;    % paper's value, PY's external excitatory conductance
 g_EXT_INPY = 0.003;   % paper's value, IN's external excitatory conductance
@@ -280,6 +277,7 @@ g_EXT_PYIN = 0.025;   % external inhibitory conductance onto PY (g~EXT^{PY<-IN})
 g_EXT_ININ = 1e-4;    % external inhibitory conductance onto IN (g~EXT^{IN<-IN}
 
 
+% trace states
 Xidx_IN = 7*NPY+8 : nStatesIN : 7*NPY+nStatesIN*NIN;
 Yidx_IN = 7*NPY+9 : nStatesIN : 7*NPY+nStatesIN*NIN;
 cidx_IN = 7*NPY+10: nStatesIN : 7*NPY+nStatesIN*NIN;
@@ -288,120 +286,65 @@ gGABA_idx_PY = 7:7:7*NPY;
 gGABA_idx_IN = 7*NPY+7 : nStatesIN : 7*NPY+nStatesIN*NIN;
 gNMDAs_idx_PY = 5:7:7*NPY;  gNMDAf_idx_PY = 6:7:7*NPY;
 
-gAMPA_idx_PY  =  4:7:7*NPY;
-gAMPA_idx_IN  = 7*NPY+4 : 11 : 7*NPY+11*NIN;
-gNMDAs_idx_IN = 7*NPY+5 : 11 : 7*NPY+11*NIN;
-gNMDAf_idx_IN = 7*NPY+6 : 11 : 7*NPY+11*NIN;
+%% preparation for state and parameter tracking
+LFP = zeros(nSteps,1);
 
-% testing plots 
-zTrace = zeros(nSteps,1);
-gGABATrace = zeros(nSteps,1);
-gGABAsourceTrace = zeros(nSteps,1);
-YrelMeanTrace = zeros(nSteps,1);
+gAMPA_idx_PY  = 4:7:7*NPY;
+gAMPA_idx_IN  = 7*NPY+4 : nStatesIN : 7*NPY+nStatesIN*NIN;
+gGABA_all_trace = zeros(nSteps,1);
+Vm_trace = zeros(nSteps, NPY+NIN);
 
-%   fprintf('Kicked %d neurons. Vm values: ', n_kick); disp(Y(Vidx_PY(kick_idx))');
-spikedPY = false(NPY,1);
-spikedIN = false(NIN,1);
-
-% track state variables
-Vm_trace = zeros(nSteps, NPY+NIN); 
-GABA_trace = zeros(nSteps, NPY+NIN); 
-gNMDAsTrace = zeros(nSteps,1);
-gNMDAfTrace = zeros(nSteps,1);
-gAMPATrace  = zeros(nSteps,1);
-
-% pick a connected PY/IN pair: IN j projects to PY i
-%iPY = find(sum(C_INPY, 2) > 0, 1);
-%iIN = find(C_INPY(iPY,:), 1);      % first IN presynaptic to PY 1
-%if isempty(iIN), iIN = 1; end
-
-% test 3
-%iIN  = 1;
-%prePY = find(C_PYIN(iIN, :));          % all PYs that project to IN 1
-%iPY  = prePY(1);  
-%n_kick = 10;                                 
-%n_kick = min(n_kick, numel(prePY)); 
-%kick_times = 200:100:900;
-
-rec_t   = (0:nSteps-1)*dt;
-rec_V   = zeros(nSteps, 2);   % PY #1, IN #1
-rec_gA  = zeros(nSteps, 2);
-rec_gG  = zeros(nSteps, 2);
-rec_XYc = zeros(nSteps, 3);   % X, Y, c of IN #1
+h = waitbar(0, 'Processing...');
 for k = 1:nSteps
     
-        t = k*dt;
-        extSpikePY = rand(NPY,1) < p_ext_PY;
-        extSpikeIN = rand(NIN,1) < p_ext_IN;
-        extGabaPY = rand(NPY,1) < p_ext_PY;   
-        extGabaIN = rand(NIN,1) < p_ext_IN;   
+    % -------------1. Spiking probabilities -------------
+    t = k*dt;
+    extSpikePY = rand(NPY,1) < p_ext_PY;
+    extSpikeIN = rand(NIN,1) < p_ext_IN;
+    extGabaPY = rand(NPY,1) < p_ext_PY;   
+    extGabaIN = rand(NIN,1) < p_ext_IN;   
         
-        Yrel = Y(Yidx_IN);  
-        arrivedAMPA_PY = (C_PYPY * spikedPY);% ./ N_in_PYPY;
-        arrivedAMPA_IN = (C_PYIN * spikedPY);% ./ N_in_PYIN;
-        gGABA_source_PY = gGABA_scale * g_GABA_PY * (C_INPY * Yrel);
-        gGABA_source_IN = gGABA_scale * g_GABA_IN * (C_ININ * Yrel);
+    Yrel = Y(Yidx_IN);  
+    arrivedAMPA_PY = (C_PYPY * spikedPY);
+    arrivedAMPA_IN = (C_PYIN * spikedPY);
+    gGABA_source_PY = g_GABA_PY * (C_INPY * Yrel);
+    gGABA_source_IN = g_GABA_IN * (C_ININ * Yrel);
         
-        % -------GABA release terminal constants (Tsodyks-Markram + calcium/PV)
-        lambda_t = 0.03e-3;   % async-release rate constant
-        Ka = 0.2;              % calcium affinity of async release
-        
-        c_prev = Y(cidx_IN);   % last step's calcium level, per IN neuron
-        lam = lambda_t .* (c_prev.^4) ./ (c_prev.^4 + Ka.^4);
-        asyncEvent = rand(NIN,1) < (1 - exp(-lam.*dt));
-        bt_vec = bt * ones(NIN,1);
+    % probability of asynchronus gaba spiking   
+    c_prev = Y(cidx_IN);  
+    lam = lambda_t .* (c_prev.^4) ./ (c_prev.^4 + Ka.^4);
+    asyncEvent = 0.01 * rand(NIN,1) < (1 - exp(-lam.*dt));
     
+    % -------------2. R4K implementation ----------------
+    k1 = compute_step(t,        Y,           NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, bt_vec, spikedIN,asyncEvent);
+    k2 = compute_step(t + dt/2, Y + dt/2*k1, NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, bt_vec, spikedIN,asyncEvent);
+    k3 = compute_step(t + dt/2, Y + dt/2*k2, NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, bt_vec, spikedIN,asyncEvent);
+    k4 = compute_step(t + dt,   Y + dt*k3,   NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, bt_vec, spikedIN,asyncEvent);
+    Y = Y + (dt/6)*(k1 + 2*k2 + 2*k3 + k4);
 
-
-   if integration_method == "R4K"
-        k1 = computeDY_spikes_gaba(t,        Y,           NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, gNMDA_scale,bt_vec, spikedIN,asyncEvent);
-        k2 = computeDY_spikes_gaba(t + dt/2, Y + dt/2*k1, NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, gNMDA_scale,bt_vec, spikedIN,asyncEvent);
-        k3 = computeDY_spikes_gaba(t + dt/2, Y + dt/2*k2, NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, gNMDA_scale,bt_vec, spikedIN,asyncEvent);
-        k4 = computeDY_spikes_gaba(t + dt,   Y + dt*k3,   NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, gNMDA_scale,bt_vec, spikedIN,asyncEvent);
-        Y = Y + (dt/6)*(k1 + 2*k2 + 2*k3 + k4);
-        %rec_V(k,:)   = [Y(Vidx_PY(iPY)),      Y(Vidx_IN(iIN))];
-        %rec_gA(k,:)  = [Y(gAMPA_idx_PY(iPY)), Y(gAMPA_idx_IN(iIN))];
-        %rec_gG(k,:)  = [Y(gGABA_idx_PY(iPY)), Y(gGABA_idx_IN(iIN))];
-        %rec_XYc(k,:) = [Y(Xidx_IN(iIN)), Y(Yidx_IN(iIN)), Y(cidx_IN(iIN))];
-        %rec_XYc(k,:) = [Y(Xidx_IN(1)),  Y(Yidx_IN(1)), Y(cidx_IN(1))];
-        %test 4
-        %if k == round(200/dt), Y(Vidx_IN(iIN)) = 20; end
-        %test 3
-        %if any(k == round(kick_times/dt)), Y(Vidx_PY(prePY(1:n_kick))) = 20; end
-    elseif integration_method == "Euler"
-        dY = computeDY_spikes_gaba(t,Y,NPY,NIN,arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, gNMDA_scale,bt_vec, spikedIN,asyncEvent);
-        Y  = Y + dt*dY;          % forward Euler
-    end
-    % spike detection, depletion, clamps, async draws as before
-
-    % ---- 2. spike detection  ----
-    Vnow = Y([Vidx_PY, Vidx_IN]);
-    
+    % -------------3. Spike detection  -------------------
+    Vnow = Y([Vidx_PY, Vidx_IN]); 
     Vm_trace(k,:) = Vnow;
-    gGABAsourceTrace(k) = mean(gGABA_source_PY);
-    YrelMeanTrace(k) = mean(Yrel);
 
     spiked = (Vprev < 0) & (Vnow >= 0);
     Vprev = Vnow;
+
     spikedPY = spiked(1:NPY);
     spikedIN = spiked(NPY+1:end);
 
     if any(spiked)
         ids = find(spiked);
-        rasterT = [rasterT; repmat(t, numel(ids),1)];
-        rasterID = [rasterID; ids];
+        n = numel(ids);
+        rasterT(rasterCount+1 : rasterCount+n) = t;
+        rasterID(rasterCount+1 : rasterCount+n) = ids;
+        rasterCount = rasterCount + n;
     end
     
-    % track variables 
-    gNMDAsTrace(k) = mean(Y(7*NPY+5 : 11 : 7*NPY+11*NIN));
-    gNMDAfTrace(k) = mean(Y(7*NPY+6 : 11 : 7*NPY+11*NIN));
-    gAMPATrace(k)  = mean(Y(7*NPY+4 : 11 : 7*NPY+11*NIN));
-  
+    % -------------3. Track variables  -------------------
+    gGABA_all_trace(k) = mean([Y(gGABA_idx_PY); Y(gGABA_idx_IN)]);
     LFP(k) = mean(Vnow);
-    zTrace(k) = mean(Y(3:7:7*NPY));
-    GABA_trace(k,:) = [Y(gGABA_idx_PY)', Y(gGABA_idx_IN)'];
-    waitbar(k/nSteps, h, sprintf('Processing %d/%d', k, nSteps))
 
+    waitbar(k/nSteps, h, sprintf('Processing %d/%d', k, nSteps))
 end
 
 figure; plot(rasterT, rasterID, '.k'); xlabel('t [ms]'); ylabel('neuron id');
@@ -410,81 +353,35 @@ figure; plot(rasterT, rasterID, '.k'); xlabel('t [ms]'); ylabel('neuron id');
 %  HELPER PLOTS
 %  ============================================================
 
-Fs = 1000/dt;   % dt in ms -> Fs in Hz. With dt=0.05ms this gives Fs=20000 Hz,
-                 % which happens to match the paper's stated 20 kHz LFP sampling rate exactly.
+Fs = 1000/dt;  
+rasterT = rasterT(1:rasterCount);
+rasterID = rasterID(1:rasterCount);
 
-
-
-figure;
-[s,f,t_spec] = spectrogram(LFP - mean(LFP), 256, 240, 512, Fs);
-imagesc(t_spec*1000, f, abs(s).^2);
-axis xy;
-ylim([0 100]);
-xlabel('Time [ms]'); ylabel('Frequency [Hz]');
-title('LFP spectrogram'); colorbar;
-
-figure; plot((1:nSteps)*dt, LFP);
+figure('Name', 'mean LPF af all neurons');
+plot((1:nSteps)*dt, LFP);
 xlabel('t [ms]'); ylabel('LFP [mV]');
 fprintf('LFP range: [%.4f, %.4f], std: %.6f\n', min(LFP), max(LFP), std(LFP));
 
 binSize = 5;  % ms
 edges = 0:binSize:T_total;
 
-figure;
+figure('Name', 'histogram of firing neurons');
 subplot(2,1,1);
 histogram(rasterT(rasterID<=NPY), edges);
 title('PY population rate'); xlabel('t [ms]'); ylabel('spikes/bin');
-
 subplot(2,1,2);
 histogram(rasterT(rasterID>NPY), edges);
 title('IN population rate'); xlabel('t [ms]'); ylabel('spikes/bin');
 
-figure;
-subplot(2,1,1);
-plot((1:nSteps)*dt, zTrace);
-xlabel('t [ms]'); ylabel('mean z (PY population)');
-title('PY adaptation variable over time');
-
-subplot(2,1,2);
-plot((1:nSteps)*dt, gGABATrace);
-xlabel('t [ms]'); ylabel('mean gGABA (PY population)');
-title('PY inhibitory conductance over time');
-
-figure;
-subplot(2,1,1); plot((1:nSteps)*dt, gGABAsourceTrace); ylabel('mean gGABA\_source\_PY'); title('Source term over time');
-subplot(2,1,2); plot((1:nSteps)*dt, YrelMeanTrace); ylabel('mean Yrel (IN release var)'); title('IN Y state over time');
-title('GABA and Yrel');
-
-function check_rhythm_v2(rasterT, rasterID, NPY, t_start, t_end)
-    binSize = 1; % finer resolution -- Nyquist now 500Hz, plenty of headroom
-    edges = t_start:binSize:t_end;
-    psth = histcounts(rasterT(rasterID<=NPY & rasterT>=t_start & rasterT<=t_end), edges);
-    [acor, lags] = xcorr(psth - mean(psth), 'coeff');
-
-    figure;
-    plot(lags*binSize, acor); xlim([-100 100]); grid on;
-    xlabel('lag [ms]'); ylabel('autocorrelation');
-    title(sprintf('[%d-%dms]', t_start, t_end));
-
-    % require peaks to be at least 8ms from lag=0 (above gama-period range)
-    % and at least 8ms apart from each other, to skip trivial near-zero-lag bumps
-    [pks, locs] = findpeaks(acor(lags>8), 'MinPeakDistance', 8);
-    if ~isempty(locs)
-        period = lags(lags>8); period = period(locs(1));
-        fprintf('[%d-%dms]: first real peak at lag=%.1fms -> %.1fHz (height=%.2f)\n', ...
-            t_start, t_end, period, 1000/period, pks(1));
-    end
-end
-
-
-
-check_rhythm_v2(rasterT, rasterID, NPY, 100, 250);
-check_rhythm_v2(rasterT, rasterID, NPY, 350, 500);
-
+figure('Name', ' mean gGABA of all neurons in the network');
+plot((1:nSteps)*dt, gGABA_all_trace);
+xlabel('t [ms]');
+ylabel('mean gGABA (all 900 neurons)');
+title('Inhibitory conductance over time, PY+IN combined');
 
 
 if (N <= 25)
-    figure;
+    figure('Name', 'plot membrane potential of all neurons');
     offset_step = 100;  % mV spacing between neurons, adjust to taste
     hold on;
     timeAxis = (1:nSteps)*dt;
@@ -501,71 +398,13 @@ if (N <= 25)
     hold off;
 end
 
-if (N <= 25)
-    figure;
-    offset_step = 100;  % mV spacing between neurons, adjust to taste
-    hold on;
-    timeAxis = (1:nSteps)*dt;
-    for i = 1:(NPY+NIN)
-        plot(timeAxis, GABA_trace(:,i) + (i-1)*offset_step, 'k');
-    end
-    % mark PY/IN boundary
-    yline((NPY-0.5)*offset_step, '--r');
-    xlabel('t [ms]');
-    ylabel('Neuron id (offset for visibility)');
-    title('gGABA per neuron over time (PY below dashed line, IN above)');
-    yticks((0:(NPY+NIN-1))*offset_step);
-    yticklabels(1:(NPY+NIN));
-    hold off;
-end
-
-figure;
-offset_step = 100;  % mV spacing between neurons, adjust to taste
-hold on;
-timeAxis = (1:nSteps)*dt;
-for i = 1:(NPY+NIN)
-    plot(timeAxis, Vm_trace(:,i) + (i-1)*offset_step, 'k');
-end
-% mark PY/IN boundary
-yline((NPY-0.5)*offset_step, '--r');
-xlabel('t [ms]');
-ylabel('Neuron id (offset for visibility)');
-title('Vm per neuron over time (PY below dashed line, IN above)');
-yticks((0:(NPY+NIN-1))*offset_step);
-yticklabels(1:(NPY+NIN));
-hold off;
-
-function dY = computeDY_spikes_gaba(t, Y, NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, gNMDA_scale, bt_vec, spikedIN, asyncEvent)
-    dY = zeros(size(Y));
-
-    % PY: 7 states each, 11-element p (last 3 unused, kept for layout parity)
-    for i = 1:NPY
-        idx = (i-1)*7 + (1:7);
-        p_i = [0, 0, arrivedAMPA_PY(i), gGABA_source_PY(i), extSpikePY(i), extGabaPY(i), dt, gNMDA_scale, 0, 0, 0];
-        dY(idx) = PY_neuron_ode(t, Y(idx), p_i);
-    end
-
-    % IN: 11 states each, full 11-element p including bt/spike_own_IN/asyncEvent_own
-    off = NPY*7;
-    for i = 1:NIN
-        idx = off + (i-1)*11 + (1:11);
-        p_i = [0, 0, arrivedAMPA_IN(i), gGABA_source_IN(i), extSpikeIN(i), extGabaIN(i), dt, gNMDA_scale, bt_vec(i), spikedIN(i), asyncEvent(i)];
-        dY(idx) = IN_neuron_ode(t, Y(idx), p_i);
-    end
-end
-
-fprintf('t=%.2f: mean gGABA_source_PY = %.6f\n', t, mean(gGABA_source_PY));
-
-figure;
-subplot(2,1,1); plot((1:nSteps)*dt, gGABAsourceTrace); ylabel('mean gGABA\_source\_PY'); title('Source term over time');
-subplot(2,1,2); plot((1:nSteps)*dt, YrelMeanTrace); ylabel('mean Yrel (IN release var)'); title('IN Y state over time');
 
 window_len = 2000;   % samples = 2000/20000*1000 = 100ms of data per window -> ~10Hz resolution
 skip_ms = 100;   % exclude the initial transient (visible in your plot, roughly 0-100ms)
 skip_idx = round(skip_ms/dt);
 [s,f,t_spec] = spectrogram(LFP(skip_idx:end) - mean(LFP(skip_idx:end)), window_len, round(window_len*0.9), 2048, Fs);
 
-figure;
+figure('Name','Spectrogram');
 imagesc(t_spec*1000 + skip_ms, f, abs(s).^2);
 axis xy;
 ylim([0 100]);
@@ -577,42 +416,5 @@ avg_power = mean(abs(s).^2, 2);
 [peak_val, peak_idx] = max(avg_power);
 fprintf('Dominant frequency (max time-averaged power): %.1f Hz (power=%.2e)\n', f(peak_idx), peak_val);
 
-
-%figure;
-%plot(f, avg_power);
-%xlim([0 150]);   % widen past 100Hz to see if the peak is actually higher
-%xlabel('Frequency [Hz]'); ylabel('Spectral Power');
-%title('Time-averaged spectral power');
-
-%figure;
-%tAx = (1:nSteps)*dt;
-%plot(tAx, gAMPATrace, 'LineWidth', 1); hold on;
-%plot(tAx, gNMDAsTrace, 'LineWidth', 1);
-%plot(tAx, gNMDAfTrace, 'LineWidth', 1);
-%plot(tAx, gNMDAsTrace - gNMDAfTrace, 'k--', 'LineWidth', 1.2);
-%hold off;
-%xlabel('time [ms]'); ylabel('conductance [mS/cm^2]');
-%legend('gAMPA','gNMDA_S','gNMDA_F','gNMDA_S - gNMDA_F', 'Location','best');
-title('Mean PY synaptic conductances');
-
-check_rhythm_v2(rasterT, rasterID, NPY, 300, 1000);
-fprintf('PY %.1f Hz, IN %.1f Hz\n', ...
-    sum(rasterID<=NPY & rasterT>300)/NPY/0.7, ...
-    sum(rasterID> NPY & rasterT>300)/NIN/0.7);
-
-gL_PY = 0.1;   % <-- use the actual gL from PY_neuron_ode.m
-
-figure;
-subplot(4,1,1); plot(rec_t, rec_V);          ylabel('Vm [mV]'); legend('PY','IN');
-subplot(4,1,2); plot(rec_t, rec_gA / gL_PY); ylabel('gAMPA / gL');
-subplot(4,1,3); plot(rec_t, rec_gG / gL_PY); ylabel('gGABA / gL');
-subplot(4,1,4); plot(rec_t, rec_XYc);        ylabel('X, Y, c'); legend('X','Y','c');
-xlabel('t [ms]');
-
-rate_PY = sum(rasterID <= NPY) / NPY / (T_total/1000)
-rate_IN = sum(rasterID >  NPY) / NIN / (T_total/1000)
-peak_gG_PY_over_gL = max(rec_gG(:,1)) / gL_PY
-
-%inSp = rasterT(rasterID == NPY + iIN);
-%hits = arrayfun(@(tk) any(inSp > tk & inSp <= tk+5), kick_times);
-%fprintf('n_kick=%d: %d/%d kicks recruited the IN\n', n_kick, sum(hits), numel(hits));
+rate_PY = sum(rasterID <= NPY) / NPY / (T_total/1000);
+rate_IN = sum(rasterID >  NPY) / NIN / (T_total/1000);

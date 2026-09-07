@@ -20,13 +20,38 @@ function f = PY_neuron_ode(t, x, p)
     %   p(6) = spike_GABA_ext   - binary external inhibitory arival
     %   p(7) = dt_local
     
-    %% Unpack states
+    persistent GNa GK GL GA Cm EAMPA EGABA tau_AMPA tau_NMDA_S tau_NMDA_F g_NMDA g_AMPA tau_GABA g_EXT_PYPY g_EXT_PYIN
+    if isempty(GNa)
+        %% Membrane parameters
+        GNa = 10;
+        GK  = 10;
+        GL  = 1.3;
+        GA  = 3;
+        Cm  = 1;
+        
+        %% Reversal potentials
+        EAMPA = 0;    % excitatory reversal
+        EGABA = -75;  % inhibitory reversal 
+        
+        %% Synaptic conductance parameters 
+        % AMPA
+        tau_AMPA  = 2;      % decay time [ms]
+        g_AMPA    = 7.5e-3; % peak conductance [mS/cm2]
+        
+        % NMDA (two components: slow and fast)
+        tau_NMDA_S = 100;   % slow decay [ms]
+        tau_NMDA_F = 2;     % fast decay [ms]
+        g_NMDA     = 0.4 * g_AMPA;  % 40% of AMPA
+        
+        % GABA
+        tau_GABA  = 8;      % decay time [ms]
+        
+        g_EXT_PYPY = 0.25;
+        g_EXT_PYIN = 0.025;
+    end
 
-    % Time varying externa input
-    I_amp  = p(1);   % amplitude
-    I_freq = p(2);   % frequency [Hz]
-    Iext = I_amp * (1 + sin(2*pi*I_freq*t/1000));
-
+    %% unpack variables
+    % Unpack states
     Vm     = x(1);
     w      = x(2);
     z      = x(3);
@@ -35,40 +60,16 @@ function f = PY_neuron_ode(t, x, p)
     gNMDAf = x(6);
     gGABA  = x(7);
     
-    %% Unpack parameters
+    % Unpack parameters
     spike_AMPA      = p(3);   % 1 if presynaptic excitatory spike, else 0
     gGABA_source_PY = p(4);   % 1 if presynaptic inhibitory spike, else 0
     spike_AMPA_ext  = p(5);   % external excitatory arrival (binary)
     spike_GABA_ext  = p(6);   % external inhibitory arrival (binary)
     dt_local        = p(7);
-    
-    %% Membrane parameters
-    GNa = 10;
-    GK  = 10;
-    GL  = 1.3;
-    GA  = 3;
-    Cm  = 1;
-    
-    %% Reversal potentials
-    EAMPA = 0;    % excitatory reversal
-    EGABA = -75;  % inhibitory reversal 
-    
-    %% Synaptic conductance parameters 
-    % AMPA
-    tau_AMPA  = 2;      % decay time [ms]
-    g_AMPA    = 7.5e-3; % peak conductance [mS/cm2]
-    
-    % NMDA (two components: slow and fast)
-    gNMDA_scale = 1;
-    tau_NMDA_S = 100;   % slow decay [ms]
-    tau_NMDA_F = 2;     % fast decay [ms]
-    g_NMDA     = gNMDA_scale  * 0.4 * g_AMPA;  % 40% of AMPA
-    
-    % GABA
-    tau_GABA  = 8;      % decay time [ms]
-    
-    g_EXT_PYPY = 0.25 * gNMDA_scale;
-    g_EXT_PYIN = 0.025;
+    % Time varying externa input
+    I_amp  = p(1);   
+    I_freq = p(2);   
+    Iext = I_amp * (1 + sin(2*pi*I_freq*t/1000));    
     
     %% Gating variables
     m_inf = 0.5 * (1 + tanh((Vm + 1.2) / 23));
@@ -81,7 +82,6 @@ function f = PY_neuron_ode(t, x, p)
      + GL          * (Vm + 70)  ...
      + GA  * z     * (Vm + 100);
     %% NMDA voltage dependence (Mg2+ block, from paper eq 10)
-    % gNMDA_total = (gNMDAs + gNMDAf) / (1 + 0.264*exp(-0.06*Vm))
     gNMDA_total = (gNMDAs - gNMDAf) / (1 + 0.264*exp(-0.06*Vm));
     
     %% Synaptic currents
@@ -101,11 +101,9 @@ function f = PY_neuron_ode(t, x, p)
     
     %% Gating ODEs
     dw = 0.15 * (w_inf - w) * cosh((Vm + 2) / 42);
-    dz = 0.005 * (z_inf - z);
-    
+    dz = 0.005 * (z_inf - z);   
 
     %% Synaptic conductance ODEs (eq 8-9 from paper)
-    % Each conductance decays exponentially and jumps at each spike
     dgAMPA  = -gAMPA/tau_AMPA + (g_AMPA/dt_local)*spike_AMPA + (g_EXT_PYPY/dt_local)*spike_AMPA_ext;
     dgNMDAs = -gNMDAs/tau_NMDA_S + (g_NMDA/dt_local)*spike_AMPA + (0.4*g_EXT_PYPY/dt_local)*spike_AMPA_ext;
     dgNMDAf = -gNMDAf/tau_NMDA_F + (g_NMDA/dt_local)*spike_AMPA + (0.4*g_EXT_PYPY/dt_local)*spike_AMPA_ext;
