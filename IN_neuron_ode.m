@@ -25,7 +25,7 @@ function f = IN_neuron_ode(t, x, p)
     
 
     persistent gNa gK gL Cm phi EAMPA ENa EK EL EGABA tau_AMPA g_AMPA tau_NMDA_S tau_NMDA_F g_NMDA tau_GABA g_EXT_INPY g_EXT_ININ ...
-        tau_D tau_R beta KP kminus kplus c_rest c0 IP U_gaba Util_gaba gama
+        tau_D tau_R beta KP kminus kplus c_rest c0 IP U_gaba Util_gaba gama 
     if isempty(gNa)
         %% neuron constants
         % Membrane parameters

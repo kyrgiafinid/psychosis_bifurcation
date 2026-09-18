@@ -188,7 +188,7 @@ g_GABA_PY = 0.8;
 % Parameters for Tsodyks-Markram + calcium/PV GABA release parameters (paper eqs. 13-18)
 lambda_t = 0.03;
 Ka = 0.2;
-bt = 10;
+bt = 1;
 c_rest = 0.05;
 bt_vec = bt * ones(NIN,1);
 
@@ -294,7 +294,9 @@ gAMPA_idx_IN  = 7*NPY+4 : nStatesIN : 7*NPY+nStatesIN*NIN;
 gGABA_all_trace = zeros(nSteps,1);
 Vm_trace = zeros(nSteps, NPY+NIN);
 
-h = waitbar(0, 'Processing...');
+%h = waitbar(0, 'Processing...');
+PY_idx_all = arrayfun(@(i) (i-1)*7+(1:7), 1:NPY, 'UniformOutput', false);
+IN_idx_all = arrayfun(@(i) NPY*7+(i-1)*11+(1:11), 1:NIN, 'UniformOutput', false);
 for k = 1:nSteps
     
     % -------------1. Spiking probabilities -------------
@@ -316,10 +318,10 @@ for k = 1:nSteps
     asyncEvent = 0.01 * rand(NIN,1) < (1 - exp(-lam.*dt));
     
     % -------------2. R4K implementation ----------------
-    k1 = compute_step(t,        Y,           NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, bt_vec, spikedIN,asyncEvent);
-    k2 = compute_step(t + dt/2, Y + dt/2*k1, NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, bt_vec, spikedIN,asyncEvent);
-    k3 = compute_step(t + dt/2, Y + dt/2*k2, NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, bt_vec, spikedIN,asyncEvent);
-    k4 = compute_step(t + dt,   Y + dt*k3,   NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, bt_vec, spikedIN,asyncEvent);
+    k1 = compute_step(t,        Y,           NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, bt_vec, spikedIN,asyncEvent,PY_idx_all,IN_idx_all);
+    k2 = compute_step(t + dt/2, Y + dt/2*k1, NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, bt_vec, spikedIN,asyncEvent,PY_idx_all,IN_idx_all);
+    k3 = compute_step(t + dt/2, Y + dt/2*k2, NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, bt_vec, spikedIN,asyncEvent,PY_idx_all,IN_idx_all);
+    k4 = compute_step(t + dt,   Y + dt*k3,   NPY, NIN, arrivedAMPA_PY, arrivedAMPA_IN, gGABA_source_PY, gGABA_source_IN, extSpikePY, extGabaPY, extSpikeIN, extGabaIN, dt, bt_vec, spikedIN,asyncEvent,PY_idx_all,IN_idx_all);
     Y = Y + (dt/6)*(k1 + 2*k2 + 2*k3 + k4);
 
     % -------------3. Spike detection  -------------------
@@ -344,7 +346,10 @@ for k = 1:nSteps
     gGABA_all_trace(k) = mean([Y(gGABA_idx_PY); Y(gGABA_idx_IN)]);
     LFP(k) = mean(Vnow);
 
-    waitbar(k/nSteps, h, sprintf('Processing %d/%d', k, nSteps))
+    %waitbar(k/nSteps, h, sprintf('Processing %d/%d', k, nSteps))
+    if mod(k, 200) == 0
+        fprintf('Processing %d/%d\n', k, nSteps);
+    end
 end
 
 figure; plot(rasterT, rasterID, '.k'); xlabel('t [ms]'); ylabel('neuron id');
