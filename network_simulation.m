@@ -8,7 +8,7 @@ close all;
 
 Nx = 30;
 Ny = 30;
-
+cut_off_connections = "ΟΝ"; % 'ON' to cut them
 N = Nx * Ny;
 
 rng(1);               % Fixed seed for random number generation
@@ -145,7 +145,9 @@ for pre = 1:N
     end
 end
 
-%C = zeros(N,N);
+if cut_off_connections == "ON"
+    C = zeros(N,N);
+end
 
 %% ============================================================
 %  DISPLAY CONNECTIVITY
@@ -294,6 +296,23 @@ gAMPA_idx_IN  = 7*NPY+4 : nStatesIN : 7*NPY+nStatesIN*NIN;
 gGABA_all_trace = zeros(nSteps,1);
 Vm_trace = zeros(nSteps, NPY+NIN);
 
+E_AMPA = 0;                       
+Iext_PY_mean = zeros(nSteps, 1); 
+Iext_IN_mean = zeros(nSteps, 1); 
+extE_PY_all = false(nSteps, NPY);   extI_PY_all = false(nSteps, NPY);
+extE_IN_all = false(nSteps, NIN);   extI_IN_all = false(nSteps, NIN);
+
+E_AMPA = 0;   E_GABA = -75;                    % mV, as in your ODE files
+mgblock = @(V) 1 ./ (1 + 0.264*exp(-0.06*V));  % NMDA Mg block, as in your ODE files
+
+% mean conductances per step (mS/cm^2)
+gAMPA_PY_mean = zeros(nSteps,1);  gNMDA_PY_mean = zeros(nSteps,1);  gGABA_PY_mean = zeros(nSteps,1);
+gAMPA_IN_mean = zeros(nSteps,1);  gNMDA_IN_mean = zeros(nSteps,1);  gGABA_IN_mean = zeros(nSteps,1);
+
+% mean currents per step (uA/cm^2), positive = depolarizing
+Iexc_PY_mean = zeros(nSteps,1);   Iinh_PY_mean = zeros(nSteps,1);
+Iexc_IN_mean = zeros(nSteps,1);   Iinh_IN_mean = zeros(nSteps,1);
+
 %h = waitbar(0, 'Processing...');
 PY_idx_all = arrayfun(@(i) (i-1)*7+(1:7), 1:NPY, 'UniformOutput', false);
 IN_idx_all = arrayfun(@(i) NPY*7+(i-1)*11+(1:11), 1:NIN, 'UniformOutput', false);
@@ -313,7 +332,10 @@ for k = 1:nSteps
     extSpikePY = rand(NPY,1) < p_ext_PY;
     extSpikeIN = rand(NIN,1) < p_ext_IN;
     extGabaPY = rand(NPY,1) < p_ext_PY;   
-    extGabaIN = rand(NIN,1) < p_ext_IN;   
+    extGabaIN = rand(NIN,1) < p_ext_IN; 
+
+    extE_PY_all(k,:) = extSpikePY;   extI_PY_all(k,:) = extGabaPY;
+    extE_IN_all(k,:) = extSpikeIN;   extI_IN_all(k,:) = extGabaIN;
         
     Yrel = Y(Yidx_IN);  
     arrivedAMPA_PY = (C_PYPY * spikedPY);
@@ -354,6 +376,53 @@ for k = 1:nSteps
     % -------------3. Track variables  -------------------
     gGABA_all_trace(k) = mean([Y(gGABA_idx_PY); Y(gGABA_idx_IN)]);
     LFP(k) = mean(Vnow);
+
+
+    % ---------- PY ----------
+    V   = Y(idxPY.V);
+    gA  = Y(idxPY.gAMPA);
+    gN  = (Y(idxPY.gNMDAs) - Y(idxPY.gNMDAf)) .* mgblock(V);   % effective NMDA
+    gG  = Y(idxPY.gGABA);
+    
+    gAMPA_PY_mean(k) = mean(gA);
+    gNMDA_PY_mean(k) = mean(gN);
+    gGABA_PY_mean(k) = mean(gG);
+    Iexc_PY_mean(k)  = mean((gA + gN) .* (E_AMPA - V));
+    Iinh_PY_mean(k)  = mean(gG .* (E_GABA - V));
+    
+    % ---------- IN ----------
+    V   = Y(idxIN.V);
+    gA  = Y(idxIN.gAMPA);
+    gN  = (Y(idxIN.gNMDAs) - Y(idxIN.gNMDAf)) .* mgblock(V);
+    gG  = Y(idxIN.gGABA);
+    
+    gAMPA_IN_mean(k) = mean(gA);
+    gNMDA_IN_mean(k) = mean(gN);
+    gGABA_IN_mean(k) = mean(gG);
+    Iexc_IN_mean(k)  = mean((gA + gN) .* (E_AMPA - V));
+    Iinh_IN_mean(k)  = mean(gG .* (E_GABA - V));% ---------- PY ----------
+    V   = Y(idxPY.V);
+    gA  = Y(idxPY.gAMPA);
+    gN  = (Y(idxPY.gNMDAs) - Y(idxPY.gNMDAf)) .* mgblock(V);   % effective NMDA
+    gG  = Y(idxPY.gGABA);
+    
+    gAMPA_PY_mean(k) = mean(gA);
+    gNMDA_PY_mean(k) = mean(gN);
+    gGABA_PY_mean(k) = mean(gG);
+    Iexc_PY_mean(k)  = mean((gA + gN) .* (E_AMPA - V));
+    Iinh_PY_mean(k)  = mean(gG .* (E_GABA - V));
+    
+    % ---------- IN ----------
+    V   = Y(idxIN.V);
+    gA  = Y(idxIN.gAMPA);
+    gN  = (Y(idxIN.gNMDAs) - Y(idxIN.gNMDAf)) .* mgblock(V);
+    gG  = Y(idxIN.gGABA);
+    
+    gAMPA_IN_mean(k) = mean(gA);
+    gNMDA_IN_mean(k) = mean(gN);
+    gGABA_IN_mean(k) = mean(gG);
+    Iexc_IN_mean(k)  = mean((gA + gN) .* (E_AMPA - V));
+    Iinh_IN_mean(k)  = mean(gG .* (E_GABA - V));
 
     %waitbar(k/nSteps, h, sprintf('Processing %d/%d', k, nSteps))
     if mod(k, 200) == 0
