@@ -10,14 +10,14 @@ p.tau_E = 2;        p.tau_I = 8;
 p.P_E = 16;          p.P_I  = 0.261;   
 
 
-mode = "GS"; % "GS" for grid search
+mode = "IN"; % "GS" for grid search
              % "IN" for inference
 T  = 1000;                            % ms
 y0 = [0.15; 0.05];                    % initial [E; I]
 
 if mode == "IN"
-    p.w_EE = 91;       p.w_IE = 9.4; %p.w_EE / a; %76.2720; %            
-    p.w_EI = 82;        p.w_II = 4.5;%p.w_EI / b; %24.7277; %p.w_EI / b;
+    p.w_EE = 85;       p.w_IE = 12.5; %p.w_EE / a; %76.2720; %            
+    p.w_EI = 85;       p.w_II = 7.5;%p.w_EI / b; %24.7277; %p.w_EI / b;
                       
     opts   = odeset('RelTol', 1e-8, 'AbsTol', 1e-10);
     [t, y] = ode45(@(t, y) wilson_cowan(t, y, p), 0:0.05:T, y0, opts);
