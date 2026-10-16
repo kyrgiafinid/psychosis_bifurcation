@@ -25,7 +25,7 @@ function [k, x0, r_ref] = fit_sigmoid(I_list, nu, I_max,type)
     y     = nu(keep) / r_ref;
     
     % ---------- fit k and x0 ----------
-    sig = @(q, x) 1 ./ (1 + exp(-abs(q(1)) * (x - q(2))));      % q = [k, x0]
+    sig = @(q, x) 1 ./ (1 + exp(-abs(q(1)) * (x - q(2)))) - 1 / 1 + exp(q(1)*q(2));      % q = [k, x0]
     q0  = [4/(max(x) - min(x)), x(find(y >= 0.5, 1))];
     q   = fminsearch(@(q) sum((sig(q, x) - y).^2), q0, optimset('MaxFunEvals', 1e5, 'MaxIter', 1e5, 'TolFun', 1e-12, 'TolX', 1e-12));
     

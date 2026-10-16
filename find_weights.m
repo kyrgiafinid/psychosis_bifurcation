@@ -2,25 +2,23 @@
 
 
 %% -------------------- parameters --------------------
-
-p.k_E = 0.162;      p.x0_E = 12;   
-p.k_I = 1.699;      p.x0_I = 1.237;
+p = struct;
+p.k_E = 0.1603;      p.x0_E = 18;   
+p.k_I = 2.1669;      p.x0_I = 0.949;
 p.rE  = 0.01820;    p.rI   = 0.05880;
 p.tau_E = 2;        p.tau_I = 8;
-p.P_E = 9;          p.P_I  = -0.72;   
+p.P_E = 16;          p.P_I  = 0.261;   
 
-a = 9.7;     % ration w_EE/w_IE
-b = 18;     % ratio W_EI/w_II
 
 mode = "GS"; % "GS" for grid search
              % "IN" for inference
+T  = 1000;                            % ms
+y0 = [0.15; 0.05];                    % initial [E; I]
 
 if mode == "IN"
-    p.w_EE = 91;        p.w_IE = p.w_EE / a;            
-    p.w_EI = 82;        p.w_II = p.w_EI / b;
-    T  = 1000;                            % ms
-    y0 = [0.15; 0.05];                    % initial [E; I]
-
+    p.w_EE = 91;       p.w_IE = 9.4; %p.w_EE / a; %76.2720; %            
+    p.w_EI = 82;        p.w_II = 4.5;%p.w_EI / b; %24.7277; %p.w_EI / b;
+                      
     opts   = odeset('RelTol', 1e-8, 'AbsTol', 1e-10);
     [t, y] = ode45(@(t, y) wilson_cowan(t, y, p), 0:0.05:T, y0, opts);
     E = y(:,1);   I = y(:,2);
@@ -66,34 +64,43 @@ if mode == "IN"
     legend('dE/dt = 0', 'dI/dt = 0', 'trajectory', 'start');
     title('Phase plane');
 
-elseif mode == "GS"
-    w_EEs = linspace(0,200,10);
-    w_IIs = linspace(0,200,10);
-      
-    for k = 1:size(w_EEs,2)
-        for j = 1:size(w_IIs,2)
-            p.w_EE = w_EEs(k);
-            p.w_II = w_IIs(j);
+elseif mode == "GS"             
+    wee_v = linspace(85, 95, 10);        % ranges and resolution are placeholders
+    wei_v = linspace(75, 85, 10);
+    wie_v = linspace(5 , 15, 5);
+    wii_v = linspace(0 , 10, 5);
+    
+    [C1, C2, C3, C4] = ndgrid(wee_v, wei_v, wie_v, wii_v);
+    
+    den = p.k_E*C1 - 4.0727;
+    ok  = den > 0 & C3 > 0 & (p.k_E*C2 .* (p.k_I*C3) > (p.k_I*C4 + 4.1843) .* den) & C1*1.2709 > (C4*4.2374 + 40.471);
+    
+    my_file = fopen('combinations.txt', 'w');       % Create or overwrite the file
+    combos = [C1(ok) C2(ok) C3(ok) C4(ok)];         % one valid (c1,c2,c3,c4) per row
+    fprintf(my_file,'%d of %d grid points satisfy the constraint\n', size(combos,1), numel(ok));
+    
+    results = nan(size(combos,1), 1);
+    
+    h = waitbar(0, 'Running iterations...');
+    for n = 1:size(combos,1)
+        p.w_EE = combos(n,1);  p.w_EI = combos(n,2);  p.w_IE = combos(n,3);  p.w_II = combos(n,4);
+        opts   = odeset('RelTol', 1e-8, 'AbsTol', 1e-10);
+        [t, y] = ode45(@(t, y) wilson_cowan(t, y, p), 0:0.05:T, y0, opts);
+        E = y(:,1);   I = y(:,2);
 
-            p.w_IE = p.w_EE / a;            
-            p.w_II = p.w_EI / b;
-    
-            opts   = odeset('RelTol', 1e-8, 'AbsTol', 1e-10);
-            [t, y] = ode45(@(t, y) wilson_cowan(t, y, p), 0:0.05:T, y0, opts);
-            E = y(:,1);   I = y(:,2);
-    
-            %% ---------- oscillation frequency (second half of the run) ----------
-            late = t > T/2;
-            x    = E(late) - mean(E(late));
-            if max(E(late)) - min(E(late)) > 1e-3
-                nCross = sum(x(1:end-1) < 0 & x(2:end) >= 0);
-                f_osc  = nCross / ((T/2) / 1000);                 % Hz
-                fprintf('Oscillation: %.1f Hz,  E %.3f..%.3f,  I %.3f..%.3f\n. wEE: %.3f, wIE: %.3f, wEI: %.3f, wII: %.3f\n', ...
-                        f_osc, min(E(late)), max(E(late)), min(I(late)), max(I(late)), p.w_EE, p.w_IE, p.w_EI, p.w_II);
-            else
-                %fprintf('No oscillation: steady state E = %.3f, I = %.3f\n', E(end), I(end));
-            end
-    
+        %% ---------- oscillation frequency (second half of the run) ----------
+        late = t > T/2;
+        x    = E(late) - mean(E(late));
+        if max(E(late)) - min(E(late)) > 1e-3
+            nCross = sum(x(1:end-1) < 0 & x(2:end) >= 0);
+            f_osc  = nCross / ((T/2) / 1000);                 % Hz
+            fprintf(my_file, 'Oscillation: %.1f Hz,  E %.3f..%.3f,  I %.3f..%.3f\n. wEE: %.3f, wIE: %.3f, wEI: %.3f, wII: %.3f\n', ...
+                    f_osc, min(E(late)), max(E(late)), min(I(late)), max(I(late)), p.w_EE, p.w_IE, p.w_EI, p.w_II);
+        else
+            %fprintf('No oscillation: steady state E = %.3f, I = %.3f\n', E(end), I(end));
         end
+    waitbar(n/size(combos,1), h, sprintf('Iteration %d / %d', n, size(combos,1)));
     end
+    
 end
+    

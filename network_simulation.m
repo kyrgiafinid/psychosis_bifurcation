@@ -8,14 +8,15 @@ close all;
 
 Nx = 30;
 Ny = 30;
-cut_off_connections = "ΟΝ"; % 'ON' to cut them
+cut_off_connections = "OFF"; % 'ON' to cut them
 N = Nx * Ny;
 
 rng(1);               % Fixed seed for random number generation
+T_transient = 200;
 
 % External drives
-vSTIM_PY = 200;
-vSTIM_IN = 500;
+vSTIM_PY = 250;
+vSTIM_IN = 625;
 
 % Neuron types
 % 1 = PY
@@ -376,53 +377,6 @@ for k = 1:nSteps
     % -------------3. Track variables  -------------------
     gGABA_all_trace(k) = mean([Y(gGABA_idx_PY); Y(gGABA_idx_IN)]);
     LFP(k) = mean(Vnow);
-
-
-    % ---------- PY ----------
-    V   = Y(idxPY.V);
-    gA  = Y(idxPY.gAMPA);
-    gN  = (Y(idxPY.gNMDAs) - Y(idxPY.gNMDAf)) .* mgblock(V);   % effective NMDA
-    gG  = Y(idxPY.gGABA);
-    
-    gAMPA_PY_mean(k) = mean(gA);
-    gNMDA_PY_mean(k) = mean(gN);
-    gGABA_PY_mean(k) = mean(gG);
-    Iexc_PY_mean(k)  = mean((gA + gN) .* (E_AMPA - V));
-    Iinh_PY_mean(k)  = mean(gG .* (E_GABA - V));
-    
-    % ---------- IN ----------
-    V   = Y(idxIN.V);
-    gA  = Y(idxIN.gAMPA);
-    gN  = (Y(idxIN.gNMDAs) - Y(idxIN.gNMDAf)) .* mgblock(V);
-    gG  = Y(idxIN.gGABA);
-    
-    gAMPA_IN_mean(k) = mean(gA);
-    gNMDA_IN_mean(k) = mean(gN);
-    gGABA_IN_mean(k) = mean(gG);
-    Iexc_IN_mean(k)  = mean((gA + gN) .* (E_AMPA - V));
-    Iinh_IN_mean(k)  = mean(gG .* (E_GABA - V));% ---------- PY ----------
-    V   = Y(idxPY.V);
-    gA  = Y(idxPY.gAMPA);
-    gN  = (Y(idxPY.gNMDAs) - Y(idxPY.gNMDAf)) .* mgblock(V);   % effective NMDA
-    gG  = Y(idxPY.gGABA);
-    
-    gAMPA_PY_mean(k) = mean(gA);
-    gNMDA_PY_mean(k) = mean(gN);
-    gGABA_PY_mean(k) = mean(gG);
-    Iexc_PY_mean(k)  = mean((gA + gN) .* (E_AMPA - V));
-    Iinh_PY_mean(k)  = mean(gG .* (E_GABA - V));
-    
-    % ---------- IN ----------
-    V   = Y(idxIN.V);
-    gA  = Y(idxIN.gAMPA);
-    gN  = (Y(idxIN.gNMDAs) - Y(idxIN.gNMDAf)) .* mgblock(V);
-    gG  = Y(idxIN.gGABA);
-    
-    gAMPA_IN_mean(k) = mean(gA);
-    gNMDA_IN_mean(k) = mean(gN);
-    gGABA_IN_mean(k) = mean(gG);
-    Iexc_IN_mean(k)  = mean((gA + gN) .* (E_AMPA - V));
-    Iinh_IN_mean(k)  = mean(gG .* (E_GABA - V));
 
     %waitbar(k/nSteps, h, sprintf('Processing %d/%d', k, nSteps))
     if mod(k, 200) == 0

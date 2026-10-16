@@ -76,10 +76,10 @@ ylabel('\muA/cm^2');  xlabel('t [ms]');  title('IN');  legend('excitatory', 'inh
 %% Compute parameters for sigmoids
 % unrelated to simulation, 
 I_list_IN = linspace(-1, 3, 50);
-I_list_PY = linspace(-1, 60, 150);
+I_list_PY = linspace(-1, 60, 50);
 
 nu_IN  = arrayfun(@(I) firing_rate('IN', I), I_list_IN);
 nu_PY  = arrayfun(@(I) firing_rate('PY', I), I_list_PY);
 
-[k_I, x0_I, rref_I] = fit_sigmoid(I_list_IN, nu_IN, 3, "IN");    % IN: fit 0–3 uA/cm^2
-[k_E, x0_E, rref_E] = fit_sigmoid(I_list_PY, nu_PY, 60, "PY");   % PY: fit up to 60 uA/cm^2
+[k_I, x0_I, rref_I] = fit_sigmoid2(I_list_IN, nu_IN, 3, "IN");    % IN: fit 0–3 uA/cm^2
+[k_E, x0_E, rref_E] = fit_sigmoid2(I_list_PY, nu_PY, 60, "PY");   % PY: fit up to 60 uA/cm^2
