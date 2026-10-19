@@ -1,6 +1,29 @@
-clear;
-clc;
-close all;
+function [peakFreq, peakPower, rate_PY, rate_IN, meanGABA, meanGABA_PY, meanGABA_IN] = network_simulation(bt, doPlots)
+% RUN_NETWORK_SIMULATION  PING network simulation, parameterized by bt.
+%
+%   [peakFreq, peakPower] = run_network_simulation(bt)
+%   [peakFreq, peakPower, rate_PY, rate_IN, meanGABA, meanGABA_PY, meanGABA_IN] = run_network_simulation(bt, doPlots)
+%
+% Inputs:
+%   bt      - calcium/PV GABA release time constant (paper eqs. 13-18)
+%   doPlots - optional, default false. If true, reproduces all the
+%             diagnostic figures from the original script.
+%
+% Outputs:
+%   peakFreq    - dominant LFP frequency [Hz] (time-averaged spectrogram power)
+%   peakPower   - power at that frequency
+%   rate_PY     - mean PY firing rate [Hz]
+%   rate_IN     - mean IN firing rate [Hz]
+%   meanGABA    - mean gGABA conductance (all neurons), post-transient steady state
+%   meanGABA_PY - mean gGABA conductance onto PY neurons, post-transient steady state
+%   meanGABA_IN - mean gGABA conductance onto IN neurons, post-transient steady state
+%
+% This is network_simulation.m refactored into a function so it can be
+% called repeatedly (e.g. by bt_sweep.m) for different values of bt.
+
+if nargin < 2
+    doPlots = false;
+end
 
 %% ============================================================
 %  NETWORK PARAMETERS
@@ -48,25 +71,27 @@ y = yGrid(:);
 
 %% Plot lattice
 
-figure('Name','Lattice');
+if doPlots
+    figure('Name','Lattice');
 
-scatter(x(PY),y(PY),50,'b','filled');
-hold on;
+    scatter(x(PY),y(PY),50,'b','filled');
+    hold on;
 
-scatter(x(IN),y(IN),70,'r','filled');
+    scatter(x(IN),y(IN),70,'r','filled');
 
-xlabel('x');
-ylabel('y');
+    xlabel('x');
+    ylabel('y');
 
-title('Neuronal Lattice');
+    title('Neuronal Lattice');
 
-legend('PY','IN');
+    legend('PY','IN');
 
-axis equal;
-xlim([0.5 Nx+0.5]);
-ylim([0.5 Ny+0.5]);
+    axis equal;
+    xlim([0.5 Nx+0.5]);
+    ylim([0.5 Ny+0.5]);
 
-grid on;
+    grid on;
+end
 
 
 %% ============================================================
@@ -154,16 +179,18 @@ end
 %  DISPLAY CONNECTIVITY
 %  ============================================================
 
-figure('Name','Connectivity matrix');
+if doPlots
+    figure('Name','Connectivity matrix');
 
-imagesc(C);
+    imagesc(C);
 
-xlabel('Presynaptic neuron');
-ylabel('Postsynaptic neuron');
+    xlabel('Presynaptic neuron');
+    ylabel('Postsynaptic neuron');
 
-title('Connectivity matrix');
+    title('Connectivity matrix');
 
-colorbar;
+    colorbar;
+end
 
 
 %% ============================================================
@@ -191,7 +218,7 @@ g_GABA_PY = 0.8;
 % Parameters for Tsodyks-Markram + calcium/PV GABA release parameters (paper eqs. 13-18)
 lambda_t = 0.03;
 Ka = 0.2;
-bt = 100;
+% bt is now a function input (swept externally)
 c_rest = 0.05;
 bt_vec = bt * ones(NIN,1);
 
@@ -295,6 +322,8 @@ LFP = zeros(nSteps,1);
 gAMPA_idx_PY  = 4:7:7*NPY;
 gAMPA_idx_IN  = 7*NPY+4 : nStatesIN : 7*NPY+nStatesIN*NIN;
 gGABA_all_trace = zeros(nSteps,1);
+gGABA_PY_trace = zeros(nSteps,1);
+gGABA_IN_trace = zeros(nSteps,1);
 Vm_trace = zeros(nSteps, NPY+NIN);
 
 E_AMPA = 0;                       
@@ -375,16 +404,20 @@ for k = 1:nSteps
     end
     
     % -------------3. Track variables  -------------------
+    gGABA_PY_trace(k) = mean(Y(gGABA_idx_PY));
+    gGABA_IN_trace(k) = mean(Y(gGABA_idx_IN));
     gGABA_all_trace(k) = mean([Y(gGABA_idx_PY); Y(gGABA_idx_IN)]);
     LFP(k) = mean(Vnow);
 
     %waitbar(k/nSteps, h, sprintf('Processing %d/%d', k, nSteps))
-    if mod(k, 200) == 0
+    if mod(k, 200) == 0 && doPlots
         fprintf('Processing %d/%d\n', k, nSteps);
     end
 end
 
-figure; plot(rasterT, rasterID, '.k'); xlabel('t [ms]'); ylabel('neuron id');
+if doPlots
+    figure; plot(rasterT, rasterID, '.k'); xlabel('t [ms]'); ylabel('neuron id');
+end
 
 %% ============================================================
 %  HELPER PLOTS
@@ -394,30 +427,34 @@ Fs = 1000/dt;
 rasterT = rasterT(1:rasterCount);
 rasterID = rasterID(1:rasterCount);
 
-figure('Name', 'mean LPF af all neurons');
-plot((1:nSteps)*dt, LFP);
-xlabel('t [ms]'); ylabel('LFP [mV]');
+if doPlots
+    figure('Name', 'mean LPF af all neurons');
+    plot((1:nSteps)*dt, LFP);
+    xlabel('t [ms]'); ylabel('LFP [mV]');
+end
 fprintf('LFP range: [%.4f, %.4f], std: %.6f\n', min(LFP), max(LFP), std(LFP));
 
 binSize = 5;  % ms
 edges = 0:binSize:T_total;
 
-figure('Name', 'histogram of firing neurons');
-subplot(2,1,1);
-histogram(rasterT(rasterID<=NPY), edges);
-title('PY population rate'); xlabel('t [ms]'); ylabel('spikes/bin');
-subplot(2,1,2);
-histogram(rasterT(rasterID>NPY), edges);
-title('IN population rate'); xlabel('t [ms]'); ylabel('spikes/bin');
+if doPlots
+    figure('Name', 'histogram of firing neurons');
+    subplot(2,1,1);
+    histogram(rasterT(rasterID<=NPY), edges);
+    title('PY population rate'); xlabel('t [ms]'); ylabel('spikes/bin');
+    subplot(2,1,2);
+    histogram(rasterT(rasterID>NPY), edges);
+    title('IN population rate'); xlabel('t [ms]'); ylabel('spikes/bin');
 
-figure('Name', ' mean gGABA of all neurons in the network');
-plot((1:nSteps)*dt, gGABA_all_trace);
-xlabel('t [ms]');
-ylabel('mean gGABA (all 900 neurons)');
-title('Inhibitory conductance over time, PY+IN combined');
+    figure('Name', ' mean gGABA of all neurons in the network');
+    plot((1:nSteps)*dt, gGABA_all_trace);
+    xlabel('t [ms]');
+    ylabel('mean gGABA (all 900 neurons)');
+    title('Inhibitory conductance over time, PY+IN combined');
+end
 
 
-if (N <= 25)
+if doPlots && (N <= 25)
     figure('Name', 'plot membrane potential of all neurons');
     offset_step = 100;  % mV spacing between neurons, adjust to taste
     hold on;
@@ -441,17 +478,37 @@ skip_ms = 100;   % exclude the initial transient (visible in your plot, roughly 
 skip_idx = round(skip_ms/dt);
 [s,f,t_spec] = spectrogram(LFP(skip_idx:end) - mean(LFP(skip_idx:end)), window_len, round(window_len*0.9), 2048, Fs);
 
-figure('Name','Spectrogram');
-imagesc(t_spec*1000 + skip_ms, f, abs(s).^2);
-axis xy;
-ylim([0 100]);
-xlabel('Time [ms]'); ylabel('Frequency [Hz]');
-title('LFP spectrogram (Fig. 1C equivalent)');
-colorbar;
+if doPlots
+    figure('Name','Spectrogram');
+    imagesc(t_spec*1000 + skip_ms, f, abs(s).^2);
+    axis xy;
+    ylim([0 100]);
+    xlabel('Time [ms]'); ylabel('Frequency [Hz]');
+    title('LFP spectrogram (Fig. 1C equivalent)');
+    colorbar;
+end
 
 avg_power = mean(abs(s).^2, 2);
 [peak_val, peak_idx] = max(avg_power);
-fprintf('Dominant frequency (max time-averaged power): %.1f Hz (power=%.2e)\n', f(peak_idx), peak_val);
+peakFreq = f(peak_idx);
+peakPower = peak_val;
+fprintf('Dominant frequency (max time-averaged power): %.1f Hz (power=%.2e)\n', peakFreq, peakPower);
 
 rate_PY = sum(rasterID <= NPY) / NPY / (T_total/1000);
 rate_IN = sum(rasterID >  NPY) / NIN / (T_total/1000);
+
+%% ============================================================
+%  STEADY-STATE GABA CONDUCTANCE (post-transient mean)
+%  ============================================================
+
+transient_idx = round(T_transient/dt);
+steady_idx = (transient_idx+1):nSteps;
+
+meanGABA    = mean(gGABA_all_trace(steady_idx));
+meanGABA_PY = mean(gGABA_PY_trace(steady_idx));
+meanGABA_IN = mean(gGABA_IN_trace(steady_idx));
+
+fprintf('Mean gGABA (steady state) - all: %.4f, PY: %.4f, IN: %.4f\n', ...
+    meanGABA, meanGABA_PY, meanGABA_IN);
+
+end
