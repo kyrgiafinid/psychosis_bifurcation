@@ -6,6 +6,7 @@
 
 %% Step 1: Define parameters and initial equilibrium
 clear;
+close all;
 p = struct();
 p.k_E = 0.1603;         p.x0_E = 18;   
 p.k_I = 2.1669;         p.x0_I = 0.949;
@@ -42,6 +43,7 @@ eigs0 = eig(J0);
 fprintf('Eigenvalues at start: %.4f + %.4fi,  %.4f + %.4fi\n\n', ...
     real(eigs0(1)), imag(eigs0(1)), real(eigs0(2)), imag(eigs0(2)));
 
+%% Step 2: Equilibrium continuation
 function out = continuation_equations
     out = {[]; @fun_eval; @jacobian; @jacobianp; @hessians; []; []; []; []};
 end
@@ -62,7 +64,20 @@ opt = contset(opt, 'Backward', 1);
 [x1, v1]     = init_EP_EP(@continuation_equations, x0, par, ap1);
 [x,v,s,h,f]  = cont(@equilibrium, x1, [], opt);
 cpl(x,v,s,[3,1]);
+xlabel('w_{II}', 'FontSize', 12);
+ylabel('E', 'FontSize', 12);
+title('Equilibrium branch vs w_{II} (decreasing)', 'FontSize', 13);
+xlim([0 10]);
+grid on; box on;
 
+idx = s(2).index;
+for i = max(1,idx-3):min(size(x,2),idx+3)
+    par(4) = x(3,i);
+    Jtest = jacobian(0, x(1:2,i), par(1),par(2),par(3),par(4),par(5),par(6),par(7),par(8),par(9),par(10),par(11),par(12),par(13),par(14));
+    fprintf('i=%d  w_II=%.4f  trace=%+.5f\n', i, x(3,i), trace(Jtest));
+end
+
+%% Step 3: Hopf continuation
 x1 = x(1:2, s(2).index);
 par(ap1) = x(end, s(2).index);
 [x0,v0] = init_H_H(@continuation_equations, x1, par, [2,4]);
@@ -73,14 +88,6 @@ opt = contset(opt, 'Backward', 0);
 opt = contset(opt, 'Backward', 1);
 [x2b,v2b,s2b,h2b,f2b] = cont(@hopf, x0, v0, opt);
 
-figure; hold on;
-plot(x2f(3,:), x2f(4,:), 'b-', 'LineWidth', 1.8);
-plot(x2b(3,:), x2b(4,:), 'b-', 'LineWidth', 1.8);
-plot(x0(3), x0(4), 'ko', 'MarkerFaceColor','r', 'MarkerSize',7);  % starting H point
-xlabel('w_{EI}', 'FontSize', 12);
-ylabel('w_{IE}', 'FontSize', 12);
-title('Hopf curve in (w_{EI}, w_{IE})', 'FontSize', 13);
-
 k = 2;                               % the index where label is 'H'
 x1 = x(1:2, s(k).index);
 par(ap1) = x(end, s(k).index);
@@ -90,15 +97,6 @@ opt = contset(opt, 'Backward', 0);
 [x2f,v2f,s2f] = cont(@hopf, x0, v0, opt);
 opt = contset(opt, 'Backward', 1);
 [x2b,v2b,s2b] = cont(@hopf, x0, v0, opt);
-
-figure; hold on;
-plot(x2f(3,:), x2f(4,:), 'b-', 'LineWidth', 1.8);
-plot(x2b(3,:), x2b(4,:), 'b-', 'LineWidth', 1.8);
-plot(x0(3), x0(4), 'ko', 'MarkerFaceColor','r', 'MarkerSize',7);
-xlabel('w_{EI}');
-ylabel('w_{II}');
-title('Hopf curve in (w_{EI}, w_{II}) — decreasing branch');
-grid on; box on;
 
 % combine both branches of the curve into one ordered list
 wEI_c = [fliplr(x2b(3,:)) x2f(3,:)];
@@ -114,21 +112,11 @@ for i = 1:length(wEI_c)
     side_out(i) = side_class(wEI_c(i), wII_c(i)+delta, seed, par, opts_fs);
 end
 
-figure; hold on;
-plot(wEI_c(side_in>0),  wII_c(side_in>0)-delta,  '.', 'Color',[1 0.8 0.75], 'MarkerSize',10);
-plot(wEI_c(side_in>0),  wII_c(side_in>0)-delta,  '.', 'Color',[1 0.8 0.75], 'MarkerSize',10);
-plot(wEI_c, wII_c, 'k-', 'LineWidth', 2);
-plot(x0(3), x0(4), 'ko', 'MarkerFaceColor','r', 'MarkerSize',7);
-xlabel('w_{EI}'); ylabel('w_{II}');
-title('Hopf curve in (w_{EI}, w_{II})');
-grid on; box on;
-
-
 wEI_c = [fliplr(x2b(3,:)) x2f(3,:)];
 wII_c = [fliplr(x2b(4,:)) x2f(4,:)];
 Eq_c  = [fliplr(x2b(1:2,:)') ; x2f(1:2,:)'];
 
-delta = 0.6;
+delta = 0.1;
 below_pts = []; above_pts = [];
 for i = 1:length(wEI_c)
     seed = Eq_c(i,:)';
@@ -138,8 +126,93 @@ for i = 1:length(wEI_c)
     if ~isnan(s_above), above_pts = [above_pts; wEI_c(i), wII_c(i)+delta, s_above]; end
 end
 
+seed = x0(1:2);
+sign_below = side_class(x0(3), x0(4)-0.6, seed, par, opts_fs);
+sign_above = side_class(x0(3), x0(4)+0.6, seed, par, opts_fs);
+
+if sign_below < 0
+    text(x0(3)-8, x0(4)-2, 'stable', 'FontSize', 12, 'FontWeight','bold', 'Color',[0 0.3 0.6]);
+    text(x0(3)+3, x0(4)+1.5, 'oscillatory', 'FontSize', 12, 'FontWeight','bold', 'Color',[0.7 0.2 0]);
+else
+    text(x0(3)-8, x0(4)-2, 'oscillatory', 'FontSize', 12, 'FontWeight','bold', 'Color',[0.7 0.2 0]);
+    text(x0(3)+3, x0(4)+1.5, 'stable', 'FontSize', 12, 'FontWeight','bold', 'Color',[0 0.3 0.6]);
+end
+
 fprintf('below curve: trace sign = %+.0f (consistent in %d%% of samples)\n', mode(below_pts(:,3)), round(100*mean(below_pts(:,3)==mode(below_pts(:,3)))));
 fprintf('above curve: trace sign = %+.0f (consistent in %d%% of samples)\n', mode(above_pts(:,3)), round(100*mean(above_pts(:,3)==mode(above_pts(:,3)))));
+
+figure; hold on;
+
+% stable (below curve)
+plot(below_pts(below_pts(:,3)<0,1), below_pts(below_pts(:,3)<0,2), '.', ...
+     'Color',[0.75 0.85 1], 'MarkerSize',10);
+
+% oscillatory (above curve)
+plot(above_pts(above_pts(:,3)>0,1), above_pts(above_pts(:,3)>0,2), '.', ...
+     'Color',[1 0.8 0.75], 'MarkerSize',10);
+
+% the few inconsistent "above" points (sign came back -1 there too)
+plot(above_pts(above_pts(:,3)<0,1), above_pts(above_pts(:,3)<0,2), '.', ...
+     'Color',[0.75 0.85 1], 'MarkerSize',10);
+
+plot(wEI_c, wII_c, 'k-', 'LineWidth', 2);          % the Hopf curve itself
+plot(x0(3), x0(4), 'ko', 'MarkerFaceColor','r', 'MarkerSize',7);
+
+xlabel('w_{EI}'); ylabel('w_{II}');
+title('Two-parameter bifurcation diagram (w_{EI}, w_{II})');
+legend({'stable','oscillatory','inconsistent (above)','Hopf curve','start point'}, 'Location','southeast');
+grid on; box on;
+
+ap1 = 4;    % w_II
+opt = contset(opt, 'Backward', 1);
+opt = contset(opt, 'MaxNumPoints', 20000); 
+opt = contset(opt, 'MaxStepsize', 0.1);  
+plot_1d_bifurcation(80, par, ap1, opt, 'Equilibrium branch vs w_{II} (w_{EI}=80)');
+plot_1d_bifurcation(90, par, ap1, opt, 'Equilibrium branch vs w_{II} (w_{EI}=90)');
+
+function plot_1d_bifurcation(wEI_fixed, par, ap1, opt, titleStr)
+    par(2) = wEI_fixed;
+    F = @(x) fun_eval(0, x, par(1),par(2),par(3),par(4),par(5),par(6),par(7),par(8),par(9),par(10),par(11),par(12),par(13),par(14));
+    opts_fs = optimoptions('fsolve','Display','off');
+    x0 = fsolve(F, [0.15; 0.05], opts_fs);
+    
+    [x1,v1] = init_EP_EP(@continuation_equations, x0, par, ap1);
+    [x,v,s,h,f] = cont(@equilibrium, x1, [], opt);
+
+    % classify each point as stable/unstable via trace sign
+    npts = size(x,2);
+    trVals = nan(1,npts);
+    for i = 1:npts
+        parLoc = par; parLoc(ap1) = x(end,i);
+        J = jacobian(0, x(1:2,i), parLoc(1),parLoc(2),parLoc(3),parLoc(4),parLoc(5),parLoc(6),parLoc(7),parLoc(8),parLoc(9),parLoc(10),parLoc(11),parLoc(12),parLoc(13),parLoc(14));
+        trVals(i) = trace(J);
+    end
+    stableMask = trVals < 0;
+
+    % restrict to the meaningful w_II window
+    mask = x(end,:) >= 0 & x(end,:) <= 10;
+
+    figure; hold on;
+    plot(x(end, mask & stableMask),  x(1, mask & stableMask),  'b.', 'MarkerSize', 8);
+    plot(x(end, mask & ~stableMask), x(1, mask & ~stableMask), 'r.', 'MarkerSize', 8);
+
+    for k = 1:length(s)
+        if strcmp(s(k).label, 'H') && x(end,s(k).index) >= 0 && x(end,s(k).index) <= 10
+            plot(x(end, s(k).index), x(1, s(k).index), 'ko', 'MarkerFaceColor','g', 'MarkerSize', 8);
+        end
+        if strcmp(s(k).label, 'LP') && x(end,s(k).index) >= 0 && x(end,s(k).index) <= 10
+            plot(x(end, s(k).index), x(1, s(k).index), 'ks', 'MarkerFaceColor','m', 'MarkerSize', 8);
+        end
+    end
+
+    xlim([0 8]);
+    xlabel('w_{II}');
+    ylabel('E (equilibrium)');
+    title(titleStr);
+    legend({'stable','unstable','Hopf','LP'}, 'Location','best');
+    grid on; box on;
+end
+
 function out = side_class(wEI, wII, seed, par, opts_fs)
     par(2) = wEI; par(4) = wII;
     F = @(x) fun_eval(0, x, par(1),par(2),par(3),par(4),par(5),par(6),par(7),par(8),par(9),par(10),par(11),par(12),par(13),par(14));
