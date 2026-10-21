@@ -1,7 +1,12 @@
+%% Bifurcation analysis of wilson Cowan model
+%
+% System:
+%   dE/dt = (-E + (1 - p.rE*E) / (1 + exp(-p.k_E * (xE - p.x0_E))) - 1/(1 + exp(p.k_E * p.x0_E)))/p.tau_E
+%   dI/dt = (-I + (1 - p.rI*I) / (1 + exp(-p.k_I * (xI - p.x0_I))) - 1/(1 + exp(p.k_I * p.x0_I)))/p.tau_I
+
+%% Step 1: Define parameters and initial equilibrium
 clear;
-
 p = struct();
-
 p.k_E = 0.1603;         p.x0_E = 18;   
 p.k_I = 2.1669;         p.x0_I = 0.949;
 p.rE  = 0.01820;        p.rI   = 0.05880;
@@ -12,7 +17,8 @@ p.w_EE = 85;            p.w_EI = 85;
 % initial values for w_EI and w_II
 p.w_IE = 12.5;            p.w_II = 7.5;
 
-% Find initial equilibrium
+% Find initial equilibrium & and verify instability by chacking eigenvalues
+% of the jacobian
 F = @(x) [
     (-x(1) + (1 - p.rE*x(1)) * (1 / (1 + exp(-p.k_E * (p.w_EE*x(1) - p.w_EI*x(2) + p.P_E - p.x0_E))) - 1/(1 + exp(p.k_E * p.x0_E))))/p.tau_E
     (-x(2) + (1 - p.rI*x(2)) * (1 / (1 + exp(-p.k_I * (p.w_IE*x(1) - p.w_II*x(2) + p.P_I - p.x0_I))) - 1/(1 + exp(p.k_I * p.x0_I))))/p.tau_I
@@ -21,7 +27,20 @@ F = @(x) [
 opts_fs = optimoptions('fsolve', 'Display', 'off');
 x0 = fsolve(F, [0.15; 0.05], opts_fs);
 
-%
+fprintf('======== 1.Find Equillibria ========\n\n');
+fprintf('  E = %.6f\n  I = %.6f\n\n', x0(1), x0(2));
+
+SE0  = 1/(1 + exp(-p.k_E*(p.w_EE*x0(1) - p.w_EI*x0(2) + p.P_E - p.x0_E)));    % E sigmoid at the equilibrium
+SI0  = 1/(1 + exp(-p.k_I*(p.w_IE*x0(1) - p.w_II*x0(2) + p.P_I - p.x0_I)));    % I sigmoid at the equilibrium
+cE0  = 1/(1 + exp(p.k_E*p.x0_E));                                             % zero-correction constants
+cI0  = 1/(1 + exp(p.k_I*p.x0_I));
+dSE0 = p.k_E*SE0*(1 - SE0);                                                   % their slopes
+dSI0 = p.k_I*SI0*(1 - SI0);
+J0 = [(-1 - p.rE*(SE0-cE0) + (1 - p.rE*x0(1))*dSE0*p.w_EE)/p.tau_E,   -(1 - p.rE*x0(1))*dSE0*p.w_EI/p.tau_E;
+        (1 - p.rI*x0(2))*dSI0*p.w_IE/p.tau_I,                    (-1 - p.rI*(SI0-cI0) - (1 - p.rI*x0(2))*dSI0*p.w_II)/p.tau_I];
+eigs0 = eig(J0);
+fprintf('Eigenvalues at start: %.4f + %.4fi,  %.4f + %.4fi\n\n', ...
+    real(eigs0(1)), imag(eigs0(1)), real(eigs0(2)), imag(eigs0(2)));
 
 function out = continuation_equations
     out = {[]; @fun_eval; @jacobian; @jacobianp; @hessians; []; []; []; []};
@@ -62,7 +81,6 @@ xlabel('w_{EI}', 'FontSize', 12);
 ylabel('w_{IE}', 'FontSize', 12);
 title('Hopf curve in (w_{EI}, w_{IE})', 'FontSize', 13);
 
-{s.label}                              % confirm which index is 'H'
 k = 2;                               % the index where label is 'H'
 x1 = x(1:2, s(k).index);
 par(ap1) = x(end, s(k).index);
