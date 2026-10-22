@@ -63,12 +63,36 @@ par = [p.w_EE; p.w_EI; p.w_IE; p.w_II; p.P_E; p.P_I; p.k_E; p.x0_E; p.k_I; p.x0_
 opt = contset(opt, 'Backward', 1);
 [x1, v1]     = init_EP_EP(@continuation_equations, x0, par, ap1);
 [x,v,s,h,f]  = cont(@equilibrium, x1, [], opt);
+
+figure('Name','Equilibrium branch (w_II)', 'NumberTitle','off');
 cpl(x,v,s,[3,1]);
 xlabel('w_{II}', 'FontSize', 12);
 ylabel('E', 'FontSize', 12);
 title('Equilibrium branch vs w_{II} (decreasing)', 'FontSize', 13);
 xlim([0 10]);
-grid on; box on;
+hold on;
+markerSpecs = struct('H',{{'o','r'}}, 'LP',{{'s','m'}}, 'BT',{{'^','c'}}, 'GH',{{'d','y'}});
+legendH = []; legendLabels = {};
+for k = 1:length(s)
+    lab = s(k).label;
+    if any(strcmp(lab, {'00','99'})), continue; end   % skip plain start/end markers
+    wIIval = x(3, s(k).index);
+    Eval   = x(1, s(k).index);
+    if wIIval < 0 || wIIval > 10, continue; end        % stay within the plotted window
+    if isfield(markerSpecs, lab)
+        spec = markerSpecs.(lab);
+    else
+        spec = {'x','k'};
+    end
+    hpt = plot(wIIval, Eval, spec{1}, 'MarkerFaceColor', spec{2}, 'MarkerEdgeColor','k', 'MarkerSize', 9);
+    text(wIIval+0.15, Eval, lab, 'FontWeight','bold');
+    if ~any(strcmp(legendLabels, lab))
+        legendH(end+1) = hpt; legendLabels{end+1} = lab; %#ok<SAGROW>
+    end
+end
+if ~isempty(legendH)
+    legend(legendH, legendLabels, 'Location','best');
+end
 
 idx = s(2).index;
 for i = max(1,idx-3):min(size(x,2),idx+3)
@@ -103,7 +127,7 @@ wEI_c = [fliplr(x2b(3,:)) x2f(3,:)];
 wII_c = [fliplr(x2b(4,:)) x2f(4,:)];
 Eq_c  = [fliplr(x2b(1:2,:)') ; x2f(1:2,:)'];
 
-delta = 0.6;  % small perpendicular offset in w_II
+delta = 2;  % small perpendicular offset in w_II
 side_in  = nan(1,length(wEI_c));
 side_out = nan(1,length(wEI_c));
 for i = 1:length(wEI_c)
@@ -116,7 +140,6 @@ wEI_c = [fliplr(x2b(3,:)) x2f(3,:)];
 wII_c = [fliplr(x2b(4,:)) x2f(4,:)];
 Eq_c  = [fliplr(x2b(1:2,:)') ; x2f(1:2,:)'];
 
-delta = 0.1;
 below_pts = []; above_pts = [];
 for i = 1:length(wEI_c)
     seed = Eq_c(i,:)';
@@ -141,28 +164,6 @@ end
 fprintf('below curve: trace sign = %+.0f (consistent in %d%% of samples)\n', mode(below_pts(:,3)), round(100*mean(below_pts(:,3)==mode(below_pts(:,3)))));
 fprintf('above curve: trace sign = %+.0f (consistent in %d%% of samples)\n', mode(above_pts(:,3)), round(100*mean(above_pts(:,3)==mode(above_pts(:,3)))));
 
-figure; hold on;
-
-% stable (below curve)
-plot(below_pts(below_pts(:,3)<0,1), below_pts(below_pts(:,3)<0,2), '.', ...
-     'Color',[0.75 0.85 1], 'MarkerSize',10);
-
-% oscillatory (above curve)
-plot(above_pts(above_pts(:,3)>0,1), above_pts(above_pts(:,3)>0,2), '.', ...
-     'Color',[1 0.8 0.75], 'MarkerSize',10);
-
-% the few inconsistent "above" points (sign came back -1 there too)
-plot(above_pts(above_pts(:,3)<0,1), above_pts(above_pts(:,3)<0,2), '.', ...
-     'Color',[0.75 0.85 1], 'MarkerSize',10);
-
-plot(wEI_c, wII_c, 'k-', 'LineWidth', 2);          % the Hopf curve itself
-plot(x0(3), x0(4), 'ko', 'MarkerFaceColor','r', 'MarkerSize',7);
-
-xlabel('w_{EI}'); ylabel('w_{II}');
-title('Two-parameter bifurcation diagram (w_{EI}, w_{II})');
-legend({'stable','oscillatory','inconsistent (above)','Hopf curve','start point'}, 'Location','southeast');
-grid on; box on;
-
 ap1 = 4;    % w_II
 opt = contset(opt, 'Backward', 1);
 opt = contset(opt, 'MaxNumPoints', 20000); 
@@ -170,8 +171,46 @@ opt = contset(opt, 'MaxStepsize', 0.1);
 plot_1d_bifurcation(80, par, ap1, opt, 'Equilibrium branch vs w_{II} (w_{EI}=80)');
 plot_1d_bifurcation(90, par, ap1, opt, 'Equilibrium branch vs w_{II} (w_{EI}=90)');
 
+below_label = cell(1,length(wEI_c));
+above_label = cell(1,length(wEI_c));
+for i = 1:length(wEI_c)
+    seed = Eq_c(i,:)';
+    below_label{i} = classify_stability(wEI_c(i), wII_c(i)-delta, seed, par, opts_fs);
+    above_label{i} = classify_stability(wEI_c(i), wII_c(i)+delta, seed, par, opts_fs);
+end
+
+figure('Name','Two-parameter bifurcation diagram', 'NumberTitle','off'); hold on;
+isStableBelow = strcmp(below_label, 'stable');
+isOscAbove    = strcmp(above_label, 'oscillatory');
+
+h1 = plot(wEI_c(isStableBelow), wII_c(isStableBelow)-delta, '.', 'Color',[0.75 0.85 1], 'MarkerSize',10);
+plot(wEI_c(~isStableBelow), wII_c(~isStableBelow)-delta, '.', 'Color',[1 0.8 0.75], 'MarkerSize',10);
+h2 = plot(wEI_c(isOscAbove), wII_c(isOscAbove)+delta, '.', 'Color',[1 0.8 0.75], 'MarkerSize',10);
+plot(wEI_c(~isOscAbove), wII_c(~isOscAbove)+delta, '.', 'Color',[0.75 0.85 1], 'MarkerSize',10);
+
+h3 = plot(wEI_c, wII_c, 'k-', 'LineWidth', 2);
+h4 = plot(x0(3), x0(4), 'ko', 'MarkerFaceColor','r', 'MarkerSize',7);
+
+xlabel('w_{EI}'); ylabel('w_{II}');
+title('Two-parameter bifurcation diagram (w_{EI}, w_{II})');
+legend([h1 h2 h3 h4], {'stable','oscillatory','Hopf curve','start point'}, 'Location','southeast');
+grid on; box on;
+
+function label = classify_stability(wEI, wII, seed, par, opts_fs)
+    par(2) = wEI; par(4) = wII;
+    F = @(x) fun_eval(0, x, par(1),par(2),par(3),par(4),par(5),par(6),par(7),par(8),par(9),par(10),par(11),par(12),par(13),par(14));
+    xs = fsolve(F, seed, opts_fs);
+    J = jacobian(0, xs, par(1),par(2),par(3),par(4),par(5),par(6),par(7),par(8),par(9),par(10),par(11),par(12),par(13),par(14));
+    if trace(J) < 0
+        label = 'stable';
+    else
+        label = 'oscillatory';
+    end
+end
+
 function plot_1d_bifurcation(wEI_fixed, par, ap1, opt, titleStr)
     par(2) = wEI_fixed;
+    par(4) = 7.5;
     F = @(x) fun_eval(0, x, par(1),par(2),par(3),par(4),par(5),par(6),par(7),par(8),par(9),par(10),par(11),par(12),par(13),par(14));
     opts_fs = optimoptions('fsolve','Display','off');
     x0 = fsolve(F, [0.15; 0.05], opts_fs);
@@ -192,7 +231,8 @@ function plot_1d_bifurcation(wEI_fixed, par, ap1, opt, titleStr)
     % restrict to the meaningful w_II window
     mask = x(end,:) >= 0 & x(end,:) <= 10;
 
-    figure; hold on;
+    titleStr = sprintf('Equilibrium branch vs w_{II} (w_{EI}=%g)', wEI_fixed);
+    figure('Name', titleStr, 'NumberTitle','off'); hold on;
     plot(x(end, mask & stableMask),  x(1, mask & stableMask),  'b.', 'MarkerSize', 8);
     plot(x(end, mask & ~stableMask), x(1, mask & ~stableMask), 'r.', 'MarkerSize', 8);
 
