@@ -70,7 +70,7 @@ xlabel('w_{II}', 'FontSize', 12);
 ylabel('E', 'FontSize', 12);
 title('Equilibrium branch vs w_{II} (decreasing)', 'FontSize', 13);
 xlim([0 10]);
-hold on;
+hold on; grid on;
 markerSpecs = struct('H',{{'o','r'}}, 'LP',{{'s','m'}}, 'BT',{{'^','c'}}, 'GH',{{'d','y'}});
 legendH = []; legendLabels = {};
 for k = 1:length(s)
