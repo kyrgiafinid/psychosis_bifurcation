@@ -5,8 +5,8 @@
 p = struct;
 p.k_E = 0.1603;      p.x0_E = 18;   
 p.k_I = 2.1669;      p.x0_I = 0.949;
-p.rE  = 0.01820;    p.rI   = 0.05880;
-p.tau_E = 2;        p.tau_I = 8;
+p.rE  = 0.01820;     p.rI   = 0.05880;
+p.tau_E = 2;         p.tau_I = 8;
 p.P_E = 16;          p.P_I  = 0.261;   
 
 
